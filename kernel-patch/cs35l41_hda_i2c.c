@@ -12,12 +12,12 @@
 
 #include "cs35l41_hda.h"
 
-static unsigned int probe_retries = 15;
+static unsigned int probe_retries = 30;
 module_param(probe_retries, uint, 0444);
 MODULE_PARM_DESC(probe_retries,
 		 "Retries after a -ETIMEDOUT probe failure (default 15)");
 
-static unsigned int probe_delay_ms = 2000;
+static unsigned int probe_delay_ms = 3000;
 module_param(probe_delay_ms, uint, 0444);
 MODULE_PARM_DESC(probe_delay_ms,
 		 "Delay between probe retries in ms (default 2000, linear spacing)");
@@ -68,9 +68,25 @@ static int cs35l41_hda_i2c_probe(struct i2c_client *clt)
 			return ret;
 
 		retry++;
-		/* Linear spacing: the AMDI0010 controller can stay unusable for
-		 * a long time after cold boot, so wait patiently rather than
-		 * backing off quickly. */
+		/* On cold boot the amps can be in a state where the whole I2C
+		 * bus segment times out (no ACK at all) until the device sees a
+		 * power transition - the same reason a suspend/resume cycle
+		 * fixes it. Cycle the ACPI power state of the amp the way PM
+		 * would (D3cold -> D0) so any firmware-managed rail for this
+		 * device gets re-initialised, then wait and try again.
+		 * Linear spacing: the AMDI0010 controller can stay unusable for
+		 * a long time after cold boot, so wait patiently. */
+#ifdef CONFIG_ACPI
+		{
+			struct acpi_device *adev = ACPI_COMPANION(&clt->dev);
+
+			if (adev) {
+				acpi_device_set_power(adev, ACPI_STATE_D3_COLD);
+				msleep(200);
+				acpi_device_set_power(adev, ACPI_STATE_D0);
+			}
+		}
+#endif
 		msleep(probe_delay_ms);
 		dev_warn(&clt->dev, "probe attempt %u failed with -ETIMEDOUT, retrying (%u/%u)\n",
 			 retry, retry, probe_retries);
