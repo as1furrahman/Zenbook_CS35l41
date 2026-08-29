@@ -12,10 +12,15 @@
 
 #include "cs35l41_hda.h"
 
-static unsigned int probe_retries = 3;
+static unsigned int probe_retries = 15;
 module_param(probe_retries, uint, 0444);
 MODULE_PARM_DESC(probe_retries,
-		 "Retries after a -ETIMEDOUT probe failure (default 3, exponential backoff)");
+		 "Retries after a -ETIMEDOUT probe failure (default 15)");
+
+static unsigned int probe_delay_ms = 2000;
+module_param(probe_delay_ms, uint, 0444);
+MODULE_PARM_DESC(probe_delay_ms,
+		 "Delay between probe retries in ms (default 2000, linear spacing)");
 
 static int cs35l41_hda_i2c_probe(struct i2c_client *clt)
 {
@@ -63,8 +68,10 @@ static int cs35l41_hda_i2c_probe(struct i2c_client *clt)
 			return ret;
 
 		retry++;
-		/* Exponential backoff: 250ms, 500ms, 1000ms, ... */
-		msleep(250 << (retry - 1));
+		/* Linear spacing: the AMDI0010 controller can stay unusable for
+		 * a long time after cold boot, so wait patiently rather than
+		 * backing off quickly. */
+		msleep(probe_delay_ms);
 		dev_warn(&clt->dev, "probe attempt %u failed with -ETIMEDOUT, retrying (%u/%u)\n",
 			 retry, retry, probe_retries);
 	}
