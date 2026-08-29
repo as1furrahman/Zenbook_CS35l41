@@ -1,9 +1,22 @@
 #!/usr/bin/env bash
 # ──────────────────────────────────────────────────────────────────────────────
-#  ASUS Zenbook UM5302TA — CS35L41 Speaker Fix  (v1.2.0)
+#  ASUS Zenbook UM5302TA — CS35L41 Speaker Fix  (v1.2.1)
 #
 #  Fixes Cirrus Logic CS35L41 amplifiers that fail on cold boot with
 #  "Failed waiting for OTP_BOOT_DONE" (error -110).
+#
+#  v1.2.1 fixes (review pass):
+#   - Helper + status + live-fix now verify BOTH amps (.0 and .1),
+#     not just amp 0 (partial bind previously counted as "fixed").
+#   - Watchdog timer: duplicate OnBootSec keys collapse to one run;
+#     now OnBootSec=90 + OnUnitActiveSec=300 (repeats every 5 min).
+#   - Helper: modprobe insert failure no longer aborts via set -e
+#     mid-retry-loop; it is treated as a failed attempt instead.
+#   - Uninstall also stops cs35l41-watchdog.service.
+#
+#  NOTE: the --fallback path may put the machine to sleep for ~3 s
+#  (rtcwake -m mem) during boot if 5 module reloads all fail. This is
+#  intentional (power-cycling the amps) but may look like a brief freeze.
 #
 #  Usage:
 #    sudo bash speakers.sh               # Install
@@ -13,8 +26,10 @@
 # ──────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-VERSION="1.2.0"
+VERSION="1.2.1"
 AMP="/sys/bus/i2c/devices/i2c-CSC3551:00-cs35l41-hda.0"
+AMP1="/sys/bus/i2c/devices/i2c-CSC3551:00-cs35l41-hda.1"
+
 HELPER="/usr/local/bin/cs35l41-reload"
 BOOT_SVC="/etc/systemd/system/cs35l41-fix.service"
 RESUME_SVC="/etc/systemd/system/cs35l41-resume.service"
@@ -65,7 +80,9 @@ if [[ "${1:-}" == "--status" ]]; then
     step "DIAGNOSTICS"
 
     ver=$(grep -oP '(?<=^# Version: ).*' "$HELPER" 2>/dev/null || echo 'not installed')
-    amp_ok=$([[ -e "$AMP/driver" ]] && echo "yes" || echo "no")
+    amp0_ok=$([[ -e "$AMP/driver" ]] && echo "yes" || echo "no")
+    amp1_ok=$([[ -e "$AMP1/driver" ]] && echo "yes" || echo "no")
+    amp_ok=$([[ "$amp0_ok" == "yes" && "$amp1_ok" == "yes" ]] && echo "yes" || echo "no")
     boot_st=$(systemctl is-active cs35l41-fix 2>/dev/null || echo "not found")
     resume_st=$(systemctl is-enabled cs35l41-resume 2>/dev/null || echo "not found")
     watchdog_st=$(systemctl is-active cs35l41-watchdog.timer 2>/dev/null || echo "not found")
@@ -104,7 +121,7 @@ fi
 if [[ "${1:-}" == "--uninstall" ]]; then
     banner
     step "UNINSTALLING"
-    systemctl disable --now cs35l41-fix cs35l41-resume cs35l41-watchdog.timer 2>/dev/null || true
+    systemctl disable --now cs35l41-fix cs35l41-resume cs35l41-watchdog.timer cs35l41-watchdog.service 2>/dev/null || true
     rm -f "$HELPER" "$BOOT_SVC" "$RESUME_SVC" "$WATCHDOG_SVC" "$WATCHDOG_TMR" /var/lock/cs35l41-reload.lock
     systemctl daemon-reload
     ok "Services disabled and removed"
@@ -125,7 +142,7 @@ fi
 banner
 
 step "PREFLIGHT CHECKS"
-[[ -d "$AMP" ]] || die "CS35L41 amplifier not found. Wrong machine?"
+[[ -d "$AMP" && -d "$AMP1" ]] || die "CS35L41 amplifier not found. Wrong machine?"
 ok "Hardware detected"
 
 modinfo "$MODULE" &>/dev/null || die "Kernel module '${MODULE}' not found."
@@ -140,26 +157,32 @@ fi
 
 cat > "$HELPER" << 'EOF'
 #!/bin/bash
-# Version: 1.2.0
+# Version: 1.2.1
 # CS35L41 module reload helper — used by systemd services.
 # Usage: cs35l41-reload [--fallback]
 set -euo pipefail
 
-AMP="/sys/bus/i2c/devices/i2c-CSC3551:00-cs35l41-hda.0/driver"
+AMP0="/sys/bus/i2c/devices/i2c-CSC3551:00-cs35l41-hda.0/driver"
+AMP1="/sys/bus/i2c/devices/i2c-CSC3551:00-cs35l41-hda.1/driver"
 LOCK="/var/lock/cs35l41-reload.lock"
 
 # ── Concurrency lock ──
 exec 9>"$LOCK"
 flock -n 9 || { echo "CS35L41: another instance running, skipping."; exit 0; }
 
-# ── Already working? ──
-[[ -e "$AMP" ]] && { echo "CS35L41: already bound."; exit 0; }
+# ── Already working? (BOTH amps must be bound) ──
+both_bound() { [[ -e "$AMP0" && -e "$AMP1" ]]; }
+both_bound && { echo "CS35L41: already bound."; exit 0; }
 
 reload() {
     modprobe -r snd_hda_scodec_cs35l41_i2c snd_hda_scodec_cs35l41 2>/dev/null || true
     sleep 2
-    modprobe snd_hda_scodec_cs35l41_i2c
+    # Insert failure (-EBUSY, missing module, etc.) counts as a failed
+    # attempt, not a fatal error — otherwise set -e would abort the
+    # retry loop on the first hiccup.
+    modprobe snd_hda_scodec_cs35l41_i2c 2>/dev/null || return 1
     sleep 2
+    return 0
 }
 
 log() { echo "CS35L41: $*"; logger -t cs35l41 "$*" 2>/dev/null || true; }
@@ -167,8 +190,9 @@ log() { echo "CS35L41: $*"; logger -t cs35l41 "$*" 2>/dev/null || true; }
 # ── Retry loop (5 attempts with backoff) ──
 log "amps not bound, reloading modules..."
 for i in 1 2 3 4 5; do
-    reload
-    if [[ -e "$AMP" ]]; then
+    if ! reload; then
+        log "attempt $i failed to load module."
+    elif both_bound; then
         log "fixed (attempt $i)."
         exit 0
     fi
@@ -188,13 +212,13 @@ if ! command -v rtcwake &>/dev/null; then
     exit 1
 fi
 
-log "trying suspend/resume fallback..."
+log "trying suspend/resume fallback (machine will sleep ~3s)..."
 rtcwake -m mem -s 3 2>/dev/null || true
 sleep 1
 
 for i in 1 2 3; do
     reload
-    if [[ -e "$AMP" ]]; then
+    if both_bound; then
         log "fixed after suspend (attempt $i)."
         exit 0
     fi
@@ -209,7 +233,7 @@ ok "Helper script  →  ${DIM}${HELPER}${NC}"
 # ── 2. Boot service ─────────────────────────────────────────────────────────
 cat > "$BOOT_SVC" << 'EOF'
 [Unit]
-Description=CS35L41 speaker fix (boot) v1.2.0
+Description=CS35L41 speaker fix (boot) v1.2.1
 After=sound.target multi-user.target
 Wants=sound.target
 
@@ -228,7 +252,7 @@ ok "Boot service   →  ${DIM}${BOOT_SVC}${NC}"
 # ── 3. Resume service ───────────────────────────────────────────────────────
 cat > "$RESUME_SVC" << 'EOF'
 [Unit]
-Description=CS35L41 speaker fix (resume) v1.2.0
+Description=CS35L41 speaker fix (resume) v1.2.1
 After=suspend.target hibernate.target hybrid-sleep.target
 
 [Service]
@@ -244,7 +268,7 @@ ok "Resume service →  ${DIM}${RESUME_SVC}${NC}"
 # ── 4. Watchdog timer (safety net) ──────────────────────────────────────────
 cat > "$WATCHDOG_SVC" << 'EOF'
 [Unit]
-Description=CS35L41 speaker watchdog v1.2.0
+Description=CS35L41 speaker watchdog v1.2.1
 
 [Service]
 Type=oneshot
@@ -253,11 +277,12 @@ EOF
 
 cat > "$WATCHDOG_TMR" << 'EOF'
 [Unit]
-Description=CS35L41 speaker watchdog timer v1.2.0
+Description=CS35L41 speaker watchdog timer v1.2.1
 
 [Timer]
 OnBootSec=90
-OnBootSec=180
+OnUnitActiveSec=300
+AccuracySec=15
 
 [Install]
 WantedBy=timers.target
@@ -270,10 +295,10 @@ systemctl daemon-reload
 systemctl enable cs35l41-fix cs35l41-resume cs35l41-watchdog.timer --quiet
 ok "Services & watchdog enabled"
 
-if [[ ! -e "$AMP/driver" ]]; then
+if [[ ! -e "$AMP/driver" || ! -e "$AMP1/driver" ]]; then
     warn "Speakers not working — attempting live fix..."
     printf "  ${DIM}   (this may take a moment)${NC}\n"
-    if systemctl start cs35l41-fix 2>/dev/null && [[ -e "$AMP/driver" ]]; then
+    if systemctl start cs35l41-fix 2>/dev/null && [[ -e "$AMP/driver" && -e "$AMP1/driver" ]]; then
         ok "Speakers fixed!"
     else
         warn "Couldn't fix live — reboot to apply"
