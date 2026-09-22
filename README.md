@@ -1,20 +1,22 @@
-# Zenbook CS35L41 Audio Fix
+# ASUS Zenbook UM5302TA — CS35L41 Audio Fix
 
 [![Self-Test CI](https://github.com/as1furrahman/Zenbook_CS35l41/actions/workflows/selftest.yml/badge.svg)](https://github.com/as1furrahman/Zenbook_CS35l41/actions/workflows/selftest.yml)
 [![Version: v1.4.0](https://img.shields.io/badge/version-1.4.0-green.svg)](https://github.com/as1furrahman/Zenbook_CS35l41/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-Automated speaker fix for **ASUS Zenbook UM5302TA** (and compatible Rembrandt-generation laptops) equipped with dual Cirrus Logic CS35L41 smart amplifiers (`CSC3551`).
+### Automated Speaker Fix & Driver Recovery Daemon for Dual CS35L41 Amplifiers (`CSC3551`)
 
 ---
 
 ## Overview
 
+### Problem Statement
 On cold boot, ASUS Zenbook UM5302TA units frequently encounter ACPI power-rail timeouts (`error -110: Failed waiting for OTP_BOOT_DONE`), leaving the speaker amplifiers unbound while headphones remain functional.
 
+### Architectural Solution
 Because the amplifier rail lacks ACPI power management (`_PS0`/`_PR0`) and relies on Embedded Controller (EC) initialization across power transitions, a pure kernel reload cannot reset the state. This project provides a hardened, non-destructive userspace daemon and recovery service that safely restores speaker audio without requiring a manual reboot.
 
-For hardware measurements and ACPI analysis, see [ROOT-CAUSE.md](ROOT-CAUSE.md).
+For technical measurements and ACPI/DSDT analysis, see [ROOT-CAUSE.md](ROOT-CAUSE.md).
 
 ---
 
@@ -74,7 +76,7 @@ sudo make uninstall                 # Completely remove fix
 
 ---
 
-## How It Works
+## Architecture & How It Works
 
 The installer sets up three lightweight, hardware-gated systemd units:
 
@@ -82,7 +84,7 @@ The installer sets up three lightweight, hardware-gated systemd units:
 2. **`cs35l41-resume.service`**: Hooks `suspend.target` to verify amplifiers immediately wake and rebind after normal suspend/resume.
 3. **`cs35l41-watchdog.timer`**: Runs every 5 minutes as a background safety net, with a rate-limited escalation window during the first 10 minutes of boot.
 
-### Recovery Ladder
+### Recovery Escalation Ladder
 
 | Condition | Action Taken | Recovery Time |
 |---|---|---|
@@ -119,7 +121,7 @@ All 34 checks execute inside an isolated sandbox (`.selftest/`) with stubbed dev
 
 ---
 
-## Compatibility & Requirements
+## Compatibility & Hardware Requirements
 
 - **Supported Models**: ASUS Zenbook S 13 OLED (UM5302TA), Zenbook 14, and related AMD Rembrandt/Barcelo platforms with ACPI hardware ID `CSC3551`.
 - **System Requirements**: Linux kernel 5.19+, `systemd`, `kmod` (`modprobe`), `util-linux` (`flock`, `rtcwake`), and `bash`.
