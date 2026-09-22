@@ -381,7 +381,15 @@ else
     printf '  FAIL  usage() produced unexpected output\n'; failed=$((failed+1))
 fi
 
+# ── pipe-execution invocation name guard (N4) ───────────────────────────────
+pipe_ver="$(bash -s -- --version < "$ROOT/speakers.sh" 2>/dev/null)"
+if [[ "$pipe_ver" == "speakers.sh $VERSION" ]]; then
+    echo "  PASS  pipe execution preserves script name ($pipe_ver)"; pass=$((pass+1))
+else
+    echo "  FAIL  pipe execution misreported script name: $pipe_ver"; failed=$((failed+1))
+fi
+
 echo
 echo "passed=$pass failed=$failed"
 rm -rf "$SB"
-[[ "$failed" == 0 && "$pass" == 33 ]]
+[[ "$failed" == 0 && "$pass" == 34 ]]

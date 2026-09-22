@@ -102,6 +102,9 @@ set -euo pipefail
 
 VERSION="1.4.0"
 PROG="$(basename "$0")"
+if [[ "$PROG" == "bash" || "$PROG" == "sh" || "$PROG" =~ ^(/dev/fd/|-) ]]; then
+    PROG="speakers.sh"
+fi
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # ── Hardware ─────────────────────────────────────────────────────────────────

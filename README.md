@@ -127,10 +127,18 @@ The fix is deliberately narrow. It touches only the two CS35L41 amp devices:
 
 ## Install
 
-**One-line install (no clone needed):**
+**One-line install (pinned to release v1.4.0):**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/as1furrahman/Zenbook_CS35l41/main/speakers.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/as1furrahman/Zenbook_CS35l41/v1.4.0/speakers.sh | sudo bash
+```
+
+**Or download, inspect, and run:**
+
+```bash
+curl -fsSL -o speakers.sh https://raw.githubusercontent.com/as1furrahman/Zenbook_CS35l41/v1.4.0/speakers.sh
+less speakers.sh
+sudo bash speakers.sh
 ```
 
 **Or clone the repository:**
@@ -191,7 +199,7 @@ bash tests/helper-selftest.sh       # hermetic sandbox suite; exit 0 = pass
 bash speakers.sh --test
 ```
 
-33 checks. It runs the shipped `scripts/cs35l41-helper.sh` artifact directly
+34 checks. It runs the shipped `scripts/cs35l41-helper.sh` artifact directly
 (and verifies byte-for-byte parity with the installer's embedded fallback),
 extracts the installer's functions from `speakers.sh`, redirects every path and
 timing constant into a sandbox, stubs `modprobe`/`rtcwake`, and asserts:
@@ -220,6 +228,7 @@ timing constant into a sandbox, stubs `modprobe`/`rtcwake`, and asserts:
   (not just enabled), and the live fix uses `restart` (not a no-op `start`)
 - a clamped bus short-circuits the retry ladder when a power cycle is allowed,
   and does **not** short-circuit a plain resume/manual run
+- pipe execution (`curl | bash` or stdin) correctly normalizes `$PROG` to `speakers.sh`
 
 ## Verify / troubleshoot
 
