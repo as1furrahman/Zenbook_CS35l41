@@ -1,6 +1,8 @@
-.PHONY: all test lint status install reinstall uninstall help
+.PHONY: all test lint status install reinstall uninstall help clean ci
 
 all: test
+
+ci: lint test
 
 lint:
 	@bash -n speakers.sh && echo "  OK  speakers.sh"
@@ -23,3 +25,6 @@ uninstall:
 
 help:
 	@bash speakers.sh --help
+
+clean:
+	rm -rf .selftest/ *.bak *.old* *.tmp

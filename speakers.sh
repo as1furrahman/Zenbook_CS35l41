@@ -143,8 +143,10 @@ step() {
 # not when the value is passed as an argument. cell() is covered by tests/.
 cell() {
     local color="$1" text="$2"
+    local pad=$(( 21 - ${#text} - 2 ))
+    (( pad > 0 )) || pad=0
     printf "${color}${BLK} %s ${NC}" "$text"
-    printf '%*s' "$(( 21 - ${#text} - 2 ))" ''
+    printf '%*s' "$pad" ''
 }
 
 # ── Banner ───────────────────────────────────────────────────────────────────
