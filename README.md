@@ -183,11 +183,12 @@ bash tests/helper-selftest.sh       # hermetic sandbox suite; exit 0 = pass
 bash speakers.sh --test
 ```
 
-32 checks. It extracts the helper and the installer's own functions from
-`speakers.sh`, redirects every path and timing constant into a sandbox, stubs
-`modprobe`/`rtcwake`, and asserts:
+33 checks. It runs the shipped `scripts/cs35l41-helper.sh` artifact directly
+(and verifies byte-for-byte parity with the installer's embedded fallback),
+extracts the installer's functions from `speakers.sh`, redirects every path and
+timing constant into a sandbox, stubs `modprobe`/`rtcwake`, and asserts:
 
-- a fix is detected — on the first reload, and across the suspend fallback
+- a fix is detected — on the first reload, on delayed asynchronous bind, and across the suspend fallback
 - it is inert without CSC3551 hardware and when the amps are already bound
 - clock skew (backward clock adjust) does not block watchdog escalation
 - the suspend fallback never fires without a flag, never mid-session, never

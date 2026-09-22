@@ -33,13 +33,13 @@ sed -e "s|^DEV0=.*|DEV0=\"$SB/amp0\"|" \
     -e "s|/proc/modules|$SB/proc_modules|g" \
     -e "s|/proc/uptime|$SB/proc_uptime|g" \
     -e "s|^ATTEMPTS=.*|ATTEMPTS=3|" \
-    -e "s|^WAIT_BIND=.*|WAIT_BIND=1|" \
-    -e "s|^BACKOFF_MAX=.*|BACKOFF_MAX=1|" \
+    -e "s|^WAIT_BIND=.*|WAIT_BIND=\"\${TEST_WAIT_BIND:-0}\"|" \
+    -e "s|^BACKOFF_MAX=.*|BACKOFF_MAX=0|" \
     -e "s|^LOCK_WAIT=.*|LOCK_WAIT=1|" \
     -e "s|^ESCALATE_INTERVAL=.*|ESCALATE_INTERVAL=180|" \
     -e "s|^ESCALATE_MAX_UPTIME=.*|ESCALATE_MAX_UPTIME=600|" \
-    -e "s|sleep 0.5|sleep 0.1|g" \
-    -e "s|sleep 1|sleep 0.1|g" \
+    -e "s|sleep 0.5|sleep 0.02|g" \
+    -e "s|sleep 1|sleep 0.02|g" \
     "$SB/reload.orig.sh" > "$SB/reload.sh"
 chmod +x "$SB/reload.sh"
 bash -n "$SB/reload.sh" || { echo "FAIL: helper has syntax errors"; exit 1; }
@@ -57,6 +57,7 @@ if [[ "\${1:-}" == "-r" ]]; then
 fi
 [[ -e "$SB/state/fail-load" ]] && exit 1
 [[ -e "$SB/state/bind-on-load" ]] && { : > "$SB/amp0/driver"; : > "$SB/amp1/driver"; }
+[[ -e "$SB/state/bind-after-poll" ]] && ( sleep 0.08; : > "$SB/amp0/driver"; : > "$SB/amp1/driver" ) &
 # Simulate a probe that hangs the i2c bus: 2 transfers per amp, as measured.
 if [[ -e "$SB/state/clamp" ]]; then
     c=\$(cat "$SB/state/clamp_count" 2>/dev/null || echo 0)
@@ -106,7 +107,7 @@ reset_state() {
     : > "$SB/proc_modules"
     echo 100 > "$SB/proc_uptime"
 }
-run_helper() { OUT="$("$SB/reload.sh" "$@" 2>&1)"; RC=$?; }
+run_helper() { OUT="$(TEST_WAIT_BIND="${TEST_WAIT_BIND:-0}" "$SB/reload.sh" "$@" 2>&1)"; RC=$?; }
 
 pass=0; failed=0
 check() {  # desc, expected rc, expected substring
@@ -150,6 +151,9 @@ if grep -qF 'fixed (attempt 1/3)' "$SB/logger.calls" 2>/dev/null; then
 else
     echo "  FAIL  helper did not log through logger"; failed=$((failed+1))
 fi
+reset_state; : > "$SB/state/bind-after-poll"
+TEST_WAIT_BIND=1 run_helper --fallback
+check "delayed bind exercises wait_bound polling loop" 0 "fixed (attempt 1/3)"
 
 reset_state; : > "$SB/state/bind-on-resume"
 run_helper --fallback
@@ -380,4 +384,4 @@ fi
 echo
 echo "passed=$pass failed=$failed"
 rm -rf "$SB"
-[[ "$failed" == 0 && "$pass" == 32 ]]
+[[ "$failed" == 0 && "$pass" == 33 ]]
