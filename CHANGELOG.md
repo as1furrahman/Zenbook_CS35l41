@@ -5,6 +5,8 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+> **Note**: Git release tags (`v1.2.0`, `v1.2.1`, `v1.3.0`, `v1.3.1`, `v1.4.0`) map directly to releases in this changelog. Releases v1.0.0 through v1.1.0 document historical development prior to the repository's initial git commit.
+
 ## [1.4.0] - 2026-09-23
 
 ### Added

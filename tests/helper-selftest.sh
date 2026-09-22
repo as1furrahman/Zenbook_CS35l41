@@ -20,10 +20,9 @@ export PATH="$BIN:$PATH"
 rm -rf "$SB"
 mkdir -p "$BIN" "$SB/run" "$SB/amp0" "$SB/amp1" "$SB/state"
 
-# ── extract the helper heredoc from speakers.sh ─────────────────────────────
-awk '/^[[:space:]]*cat > "\$HELPER" << .EOF.$/ { f=1; next } f && /^[[:space:]]*EOF$/ { f=0 } f' \
-    "$ROOT/speakers.sh" > "$SB/reload.orig.sh"
-[[ -s "$SB/reload.orig.sh" ]] || { echo "FAIL: could not extract helper"; exit 1; }
+# ── obtain the helper directly from scripts/cs35l41-helper.sh ───────────────
+[[ -f "$ROOT/scripts/cs35l41-helper.sh" ]] || { echo "FAIL: scripts/cs35l41-helper.sh not found"; exit 1; }
+cp "$ROOT/scripts/cs35l41-helper.sh" "$SB/reload.orig.sh"
 
 # ── redirect every path/constant into the sandbox ───────────────────────────
 sed -e "s|^DEV0=.*|DEV0=\"$SB/amp0\"|" \
@@ -34,11 +33,13 @@ sed -e "s|^DEV0=.*|DEV0=\"$SB/amp0\"|" \
     -e "s|/proc/modules|$SB/proc_modules|g" \
     -e "s|/proc/uptime|$SB/proc_uptime|g" \
     -e "s|^ATTEMPTS=.*|ATTEMPTS=3|" \
-    -e "s|^WAIT_BIND=.*|WAIT_BIND=1|" \
-    -e "s|^BACKOFF_MAX=.*|BACKOFF_MAX=1|" \
+    -e "s|^WAIT_BIND=.*|WAIT_BIND=0|" \
+    -e "s|^BACKOFF_MAX=.*|BACKOFF_MAX=0|" \
     -e "s|^LOCK_WAIT=.*|LOCK_WAIT=1|" \
     -e "s|^ESCALATE_INTERVAL=.*|ESCALATE_INTERVAL=180|" \
     -e "s|^ESCALATE_MAX_UPTIME=.*|ESCALATE_MAX_UPTIME=600|" \
+    -e "s|sleep 0.5|sleep 0.02|g" \
+    -e "s|sleep 1|sleep 0.02|g" \
     "$SB/reload.orig.sh" > "$SB/reload.sh"
 chmod +x "$SB/reload.sh"
 bash -n "$SB/reload.sh" || { echo "FAIL: helper has syntax errors"; exit 1; }
@@ -229,7 +230,7 @@ wait "$locker" 2>/dev/null
 check "waits out a competing instance" 0 "fixed (attempt 1/3)"
 
 reset_state
-( exec 8>"$SB/run/cs35l41-reload.lock"; flock 8; sleep 5 ) &
+( exec 8>"$SB/run/cs35l41-reload.lock"; flock 8; sleep 1.4 ) &
 locker=$!
 sleep 0.2
 run_helper --fallback
@@ -244,7 +245,7 @@ reset_state
     sleep 0.2
     : > "$SB/amp0/driver"
     : > "$SB/amp1/driver"
-    sleep 2
+    sleep 1.4
 ) &
 locker=$!
 sleep 0.1
@@ -267,13 +268,13 @@ else
     echo "  FAIL  live fix uses start — a no-op when the unit is already active"; failed=$((failed+1))
 fi
 
-# ── standalone helper sync guard (G-3) ──────────────────────────────────────
-if [[ -f "$ROOT/scripts/cs35l41-helper.sh" ]]; then
-    if diff -u "$ROOT/scripts/cs35l41-helper.sh" "$SB/reload.orig.sh" >/dev/null; then
-        echo "  PASS  standalone helper and installer embedded copy are identical"; pass=$((pass+1))
-    else
-        echo "  FAIL  scripts/cs35l41-helper.sh and speakers.sh embedded copy differ"; failed=$((failed+1))
-    fi
+# ── standalone helper sync guard (G-3 / N-2) ────────────────────────────────
+awk '/^[[:space:]]*cat > "\$HELPER" << .EOF.$/ { f=1; next } f && /^[[:space:]]*EOF$/ { f=0 } f' \
+    "$ROOT/speakers.sh" > "$SB/reload.embedded.sh"
+if diff -u "$ROOT/scripts/cs35l41-helper.sh" "$SB/reload.embedded.sh" >/dev/null; then
+    echo "  PASS  standalone helper and installer embedded copy are identical"; pass=$((pass+1))
+else
+    echo "  FAIL  scripts/cs35l41-helper.sh and speakers.sh embedded copy differ"; failed=$((failed+1))
 fi
 
 # ── systemd unit integrity & ordering (G-5) ─────────────────────────────────
@@ -297,22 +298,56 @@ else
     echo "  FAIL  watchdog started before live fix finished"; failed=$((failed+1))
 fi
 
-# ── uninstall coverage (G-5) ────────────────────────────────────────────────
-mkdir -p "$SB/systemd"
-touch "$SB/bin/cs35l41-reload" "$SB/bin/cs35l41-reload.bak" "$SB/bin/cs35l41-reload.old1" \
-      "$SB/systemd/cs35l41-fix.service" "$SB/systemd/cs35l41-resume.service" \
-      "$SB/systemd/cs35l41-watchdog.service" "$SB/systemd/cs35l41-watchdog.timer" \
-      "$SB/run/cs35l41-reload.lock" "$SB/run/cs35l41-suspended"
-rm -f "$SB/bin/cs35l41-reload" "$SB/bin/cs35l41-reload.bak" "$SB/bin/cs35l41-reload".old* \
-      "$SB/systemd/cs35l41-fix.service" "$SB/systemd/cs35l41-resume.service" \
-      "$SB/systemd/cs35l41-watchdog.service" "$SB/systemd/cs35l41-watchdog.timer" \
-      "$SB/run/cs35l41-reload.lock" "$SB/run/cs35l41-suspended"
-rem_count=$(find "$SB/systemd" -type f 2>/dev/null | wc -l)
-if [[ ! -e "$SB/bin/cs35l41-reload" && ! -e "$SB/bin/cs35l41-reload.bak" && ! -e "$SB/bin/cs35l41-reload.old1" \
-      && ! -e "$SB/run/cs35l41-reload.lock" && ! -e "$SB/run/cs35l41-suspended" && "$rem_count" -eq 0 ]]; then
-    echo "  PASS  uninstall cleans up all units, backups, locks, and stamps"; pass=$((pass+1))
+# ── uninstall coverage (G-5 / N-3) ──────────────────────────────────────────
+# Exercise the real do_uninstall() from speakers.sh under a sandboxed environment.
+eval "$(sed -n '/^do_uninstall() {/,/^}/p' "$ROOT/speakers.sh")"
+
+if (
+    # shellcheck disable=SC2317
+    need_root() { :; }
+    # shellcheck disable=SC2317
+    banner() { :; }
+    # shellcheck disable=SC2317
+    step() { :; }
+    # shellcheck disable=SC2317
+    ok() { :; }
+    # shellcheck disable=SC2317
+    printf() { :; }
+    # shellcheck disable=SC2317
+    systemctl() { echo "systemctl $*" >> "$SB/systemctl.log"; }
+    # shellcheck disable=SC2034
+    GRN="" BLD="" NC=""
+
+    HELPER="$SB/bin/cs35l41-reload"
+    BOOT_SVC="$SB/systemd/cs35l41-fix.service"
+    RESUME_SVC="$SB/systemd/cs35l41-resume.service"
+    WATCHDOG_SVC="$SB/systemd/cs35l41-watchdog.service"
+    WATCHDOG_TMR="$SB/systemd/cs35l41-watchdog.timer"
+    LOCK="$SB/run/cs35l41-reload.lock"
+    LEGACY_LOCK="$SB/run/cs35l41-reload-legacy.lock"
+    STAMP="$SB/run/cs35l41-suspended"
+
+    mkdir -p "$SB/systemd" "$SB/bin" "$SB/run"
+    touch "$HELPER" "${HELPER}.bak" "${HELPER}.old1" "${HELPER}.old2" \
+          "$BOOT_SVC" "$RESUME_SVC" "$WATCHDOG_SVC" "$WATCHDOG_TMR" \
+          "$LOCK" "$LEGACY_LOCK" "$STAMP"
+
+    do_uninstall
+
+    grep -q "disable --now cs35l41-fix" "$SB/systemctl.log" || exit 1
+    grep -q "reset-failed cs35l41-fix" "$SB/systemctl.log" || exit 2
+    grep -q "daemon-reload" "$SB/systemctl.log" || exit 3
+
+    for f in "$HELPER" "${HELPER}.bak" "${HELPER}.old1" "${HELPER}.old2" \
+             "$BOOT_SVC" "$RESUME_SVC" "$WATCHDOG_SVC" "$WATCHDOG_TMR" \
+             "$LOCK" "$LEGACY_LOCK" "$STAMP"; do
+        [[ -e "$f" ]] && exit 4
+    done
+    exit 0
+); then
+    echo "  PASS  do_uninstall() disables units, reloads daemon, and purges files"; pass=$((pass+1))
 else
-    echo "  FAIL  uninstall cleanup pattern left stray files"; failed=$((failed+1))
+    echo "  FAIL  do_uninstall() failed to disable units or purge files"; failed=$((failed+1))
 fi
 
 # ── status-table cell alignment (cell() is what draws the badges) ──────────

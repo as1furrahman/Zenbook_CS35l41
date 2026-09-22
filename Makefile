@@ -10,13 +10,8 @@ lint:
 	@bash -n speakers.sh && echo "  OK  bash -n speakers.sh"
 	@bash -n scripts/cs35l41-helper.sh && echo "  OK  bash -n scripts/cs35l41-helper.sh"
 	@bash -n tests/helper-selftest.sh && echo "  OK  bash -n tests/helper-selftest.sh"
-	@if command -v $(SHELLCHECK) >/dev/null 2>&1; then \
-		$(SHELLCHECK) speakers.sh && echo "  OK  shellcheck speakers.sh"; \
-		$(SHELLCHECK) scripts/cs35l41-helper.sh && echo "  OK  shellcheck scripts/cs35l41-helper.sh"; \
-		$(SHELLCHECK) tests/helper-selftest.sh && echo "  OK  shellcheck tests/helper-selftest.sh"; \
-	else \
-		echo "  WARN shellcheck not found, skipping static analysis"; \
-	fi
+	@command -v $(SHELLCHECK) >/dev/null 2>&1 || { echo "ERROR: shellcheck not found on PATH"; exit 1; }
+	@$(SHELLCHECK) speakers.sh scripts/cs35l41-helper.sh tests/helper-selftest.sh && echo "  OK  shellcheck (all files)"
 
 test: lint
 	@bash tests/helper-selftest.sh

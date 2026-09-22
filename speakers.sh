@@ -119,6 +119,7 @@ WATCHDOG_SVC="/etc/systemd/system/cs35l41-watchdog.service"
 WATCHDOG_TMR="/etc/systemd/system/cs35l41-watchdog.timer"
 STAMP="/run/cs35l41-suspended"
 LOCK="/run/lock/cs35l41-reload.lock"
+LEGACY_LOCK="/var/lock/cs35l41-reload.lock"
 
 # ── Colors & Styles ──────────────────────────────────────────────────────────
 BLK='\033[0;30m'   RED='\033[0;31m'   GRN='\033[0;32m'   YLW='\033[1;33m'
@@ -308,7 +309,7 @@ do_uninstall() {
         cs35l41-watchdog.service 2>/dev/null || true
     rm -f "$HELPER" "${HELPER}.bak" "${HELPER}".old* \
           "$BOOT_SVC" "$RESUME_SVC" "$WATCHDOG_SVC" "$WATCHDOG_TMR" \
-          "$LOCK" /var/lock/cs35l41-reload.lock "$STAMP"
+          "$LOCK" "$LEGACY_LOCK" "$STAMP"
     systemctl daemon-reload
     ok "Units disabled and removed"
     ok "Helper script removed"
