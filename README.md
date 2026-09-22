@@ -212,7 +212,7 @@ aplay -l                                  # speaker PCM on the ALC294 card
 If a boot still fails:
 
 ```bash
-systemctl start cs35l41-fix               # manual retry
+sudo systemctl restart cs35l41-fix        # manual retry (restart clears RemainAfterExit state)
 sudo modprobe -r snd_hda_scodec_cs35l41_i2c && sudo modprobe snd_hda_scodec_cs35l41_i2c
 ```
 
@@ -286,9 +286,9 @@ Other Rembrandt Zenbooks with `CSC3551` ACPI devices likely work too — check
   `bsdutils`). `rtcwake` (also `util-linux`) is needed only for the suspend
   fallback — `--status` reports whether it is present
 - If the amps probe fine on a future kernel/firmware, just `--uninstall`
-- Upstream-worthy fix: a probe-retry in the kernel driver — consider reporting
-  at [bugzilla.kernel.org](https://bugzilla.kernel.org) so this gets fixed
-  for everyone
+- Upstream fix: A pure kernel driver retry cannot re-power the dead EC rail
+  (see [ROOT-CAUSE.md](ROOT-CAUSE.md)). A permanent vendor fix requires ASUS EC/BIOS
+  firmware updates to ensure the amplifier rail is powered at cold boot.
 
 ## License
 
