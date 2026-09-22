@@ -102,7 +102,7 @@ set -euo pipefail
 
 VERSION="1.4.0"
 PROG="$(basename "$0")"
-if [[ "$PROG" == "bash" || "$PROG" == "sh" || "$PROG" =~ ^(/dev/fd/|-) ]]; then
+if [[ "$0" == "bash" || "$0" == "sh" || "$0" == /dev/fd/* || "$0" == "-"* || "$PROG" == "bash" || "$PROG" == "sh" || "$PROG" =~ ^[0-9]+$ ]]; then
     PROG="speakers.sh"
 fi
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -379,7 +379,7 @@ ATTEMPTS=8               # module reload attempts before giving up
 WAIT_BIND=5              # seconds to wait for the driver to bind after a load
 BACKOFF_MAX=10           # cap on the linear backoff between attempts
 LOCK_WAIT=30             # seconds to wait for a competing instance to finish
-ESCALATE_INTERVAL=180    # min seconds between watchdog-triggered sleep cycles
+ESCALATE_INTERVAL=60     # min seconds between watchdog-triggered sleep cycles
 ESCALATE_MAX_UPTIME=600  # escalate only in the first 10 min after boot
 
 log() { echo "CS35L41: $*"; logger -t cs35l41 "$*" 2>/dev/null || true; }

@@ -29,7 +29,7 @@ ATTEMPTS=8               # module reload attempts before giving up
 WAIT_BIND=5              # seconds to wait for the driver to bind after a load
 BACKOFF_MAX=10           # cap on the linear backoff between attempts
 LOCK_WAIT=30             # seconds to wait for a competing instance to finish
-ESCALATE_INTERVAL=180    # min seconds between watchdog-triggered sleep cycles
+ESCALATE_INTERVAL=60     # min seconds between watchdog-triggered sleep cycles
 ESCALATE_MAX_UPTIME=600  # escalate only in the first 10 min after boot
 
 log() { echo "CS35L41: $*"; logger -t cs35l41 "$*" 2>/dev/null || true; }
