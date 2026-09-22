@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 as1furrahman
+# shellcheck disable=SC2059
 # ──────────────────────────────────────────────────────────────────────────────
 #  ASUS Zenbook UM5302TA — CS35L41 Speaker Fix  (v1.4.0)
 #
@@ -143,9 +144,9 @@ step() {
 # not when the value is passed as an argument. cell() is covered by tests/.
 cell() {
     local color="$1" text="$2"
-    local pad=$(( 21 - ${#text} - 2 ))
+    local pad=$(( 21 - ${#text} ))
     (( pad > 0 )) || pad=0
-    printf "${color}${BLK} %s ${NC}" "$text"
+    printf "${color}${BLK}%s${NC}" "$text"
     printf '%*s' "$pad" ''
 }
 
@@ -236,7 +237,8 @@ status() {
     fi
 
     printf "  ${DIM}┌─────────────────┬───────────────────────┐${NC}\n"
-    printf "  ${DIM}│${NC}  ${BLD}Version${NC}        ${DIM}│${NC}  %-21s ${DIM}│${NC}\n" "$ver"
+    printf "  ${DIM}│${NC}  ${BLD}Installed ver${NC}  ${DIM}│${NC}  %-21s ${DIM}│${NC}\n" "$ver"
+    printf "  ${DIM}│${NC}  ${BLD}Script ver${NC}     ${DIM}│${NC}  %-21s ${DIM}│${NC}\n" "$VERSION"
     printf "  ${DIM}├─────────────────┼───────────────────────┤${NC}\n"
     if [[ "$hw_ok" == yes ]]; then
         printf "  ${DIM}│${NC}  Hardware       ${DIM}│${NC}  %s ${DIM}│${NC}\n" "$(cell "$BG_GRN" "YES")"
@@ -295,59 +297,49 @@ status() {
     fi
 }
 
-# ── Dispatch ─────────────────────────────────────────────────────────────────
-case "${1:-}" in
-    -h|--help)    banner; usage; exit 0 ;;
-    -V|--version)     printf '%s %s\n' "$PROG" "$VERSION"; exit 0 ;;
-    --status)         status; exit 0 ;;
-    --test|--selftest) exec bash "$SCRIPT_DIR/tests/helper-selftest.sh" ;;
-    "")               ;;
-    --reinstall)  need_root; systemctl stop cs35l41-fix cs35l41-resume \
-                      cs35l41-watchdog.timer cs35l41-watchdog.service 2>/dev/null || true
-                  warn "Forcing fresh install..." ;;
-    --uninstall)  need_root
-                  banner
-                  step "UNINSTALLING"
-                  systemctl disable --now cs35l41-fix cs35l41-resume \
-                      cs35l41-watchdog.timer cs35l41-watchdog.service 2>/dev/null || true
-                  systemctl reset-failed cs35l41-fix cs35l41-resume \
-                      cs35l41-watchdog.service 2>/dev/null || true
-                  rm -f "$HELPER" "${HELPER}.bak" "${HELPER}".old* \
-                        "$BOOT_SVC" "$RESUME_SVC" "$WATCHDOG_SVC" "$WATCHDOG_TMR" \
-                        "$LOCK" /var/lock/cs35l41-reload.lock "$STAMP"
-                  systemctl daemon-reload
-                  ok "Units disabled and removed"
-                  ok "Helper script removed"
-                  printf "\n  ${GRN}${BLD}✓  Fully uninstalled.${NC}\n\n"
-                  exit 0 ;;
-    *)            banner
-                  fail "Unknown option: $1"
-                  usage
-                  exit 2 ;;
-esac
+# ── Actions ──────────────────────────────────────────────────────────────────
+do_uninstall() {
+    need_root
+    banner
+    step "UNINSTALLING"
+    systemctl disable --now cs35l41-fix cs35l41-resume \
+        cs35l41-watchdog.timer cs35l41-watchdog.service 2>/dev/null || true
+    systemctl reset-failed cs35l41-fix cs35l41-resume \
+        cs35l41-watchdog.service 2>/dev/null || true
+    rm -f "$HELPER" "${HELPER}.bak" "${HELPER}".old* \
+          "$BOOT_SVC" "$RESUME_SVC" "$WATCHDOG_SVC" "$WATCHDOG_TMR" \
+          "$LOCK" /var/lock/cs35l41-reload.lock "$STAMP"
+    systemctl daemon-reload
+    ok "Units disabled and removed"
+    ok "Helper script removed"
+    printf "\n  ${GRN}${BLD}✓  Fully uninstalled.${NC}\n\n"
+}
 
-# ── Install ──────────────────────────────────────────────────────────────────
-need_root
-banner
+do_install() {
+    need_root
+    banner
 
-step "PREFLIGHT CHECKS"
-[[ -d "$DEV0" && -d "$DEV1" ]] || die "CS35L41 amplifier not found. Wrong machine?"
-ok "Hardware detected"
+    step "PREFLIGHT CHECKS"
+    [[ -d "$DEV0" && -d "$DEV1" ]] || die "CS35L41 amplifier not found. Wrong machine?"
+    ok "Hardware detected"
 
-modinfo "$MODULE" &>/dev/null || die "Kernel module '${MODULE}' not found."
-ok "Kernel module available"
+    modinfo "$MODULE" &>/dev/null || die "Kernel module '${MODULE}' not found."
+    ok "Kernel module available"
 
-if ! command -v rtcwake >/dev/null 2>&1; then
-    warn "rtcwake not found — install util-linux for the suspend fallback"
-fi
+    if ! command -v rtcwake >/dev/null 2>&1; then
+        warn "rtcwake not found — install util-linux for the suspend fallback"
+    fi
 
-step "INSTALLING COMPONENTS"
+    step "INSTALLING COMPONENTS"
 
-# ── 1. Helper script ────────────────────────────────────────────────────────
-if [[ -f "$HELPER" ]]; then
-    cp -f "$HELPER" "${HELPER}.bak" 2>/dev/null || true
-fi
+    # ── 1. Helper script ────────────────────────────────────────────────────────
+    if [[ -f "$HELPER" ]]; then
+        cp -f "$HELPER" "${HELPER}.bak" 2>/dev/null || true
+    fi
 
+    if [[ -f "$SCRIPT_DIR/scripts/cs35l41-helper.sh" ]]; then
+        cp -f "$SCRIPT_DIR/scripts/cs35l41-helper.sh" "$HELPER"
+    else
 cat > "$HELPER" << 'EOF'
 #!/bin/bash
 # Version: 1.4.0
@@ -585,13 +577,15 @@ done
 log "all attempts failed." >&2
 exit 1
 EOF
+fi
+sed -i "s|^# Version: .*|# Version: ${VERSION}|" "$HELPER"
 chmod 755 "$HELPER"
 ok "Helper script  →  ${DIM}${HELPER}${NC}"
 
 # ── 2. Boot service ─────────────────────────────────────────────────────────
-cat > "$BOOT_SVC" << 'EOF'
+cat > "$BOOT_SVC" << EOF
 [Unit]
-Description=CS35L41 speaker fix (boot) v1.4.0
+Description=CS35L41 speaker fix (boot) v${VERSION}
 Documentation=https://github.com/as1furrahman/Zenbook_CS35l41
 ConditionPathExists=/sys/bus/i2c/devices/i2c-CSC3551:00-cs35l41-hda.0
 After=sound.target multi-user.target
@@ -613,9 +607,9 @@ ok "Boot service   →  ${DIM}${BOOT_SVC}${NC}"
 # Ordered After=suspend.target, which systemd activates only *after*
 # systemd-suspend.service (the unit that actually sleeps) has finished — so
 # this genuinely runs on resume, not before suspend.
-cat > "$RESUME_SVC" << 'EOF'
+cat > "$RESUME_SVC" << EOF
 [Unit]
-Description=CS35L41 speaker fix (resume) v1.4.0
+Description=CS35L41 speaker fix (resume) v${VERSION}
 Documentation=https://github.com/as1furrahman/Zenbook_CS35l41
 ConditionPathExists=/sys/bus/i2c/devices/i2c-CSC3551:00-cs35l41-hda.0
 After=suspend.target hibernate.target hybrid-sleep.target
@@ -631,9 +625,9 @@ EOF
 ok "Resume service →  ${DIM}${RESUME_SVC}${NC}"
 
 # ── 4. Watchdog timer (safety net) ──────────────────────────────────────────
-cat > "$WATCHDOG_SVC" << 'EOF'
+cat > "$WATCHDOG_SVC" << EOF
 [Unit]
-Description=CS35L41 speaker watchdog v1.4.0
+Description=CS35L41 speaker watchdog v${VERSION}
 Documentation=https://github.com/as1furrahman/Zenbook_CS35l41
 ConditionPathExists=/sys/bus/i2c/devices/i2c-CSC3551:00-cs35l41-hda.0
 
@@ -642,9 +636,9 @@ Type=oneshot
 ExecStart=/usr/local/bin/cs35l41-reload --escalate
 EOF
 
-cat > "$WATCHDOG_TMR" << 'EOF'
+cat > "$WATCHDOG_TMR" << EOF
 [Unit]
-Description=CS35L41 speaker watchdog timer v1.4.0
+Description=CS35L41 speaker watchdog timer v${VERSION}
 Documentation=https://github.com/as1furrahman/Zenbook_CS35l41
 
 [Timer]
@@ -707,5 +701,25 @@ printf "  ${WHT}Uninstall${NC}    ${CYN}sudo bash %s --uninstall${NC}\n" "$PROG"
 printf "  ${WHT}Help${NC}         ${CYN}bash %s --help${NC}\n" "$PROG"
 printf "\n"
 printf "  ${WHT}Service${NC}      ${CYN}systemctl status cs35l41-fix${NC}\n"
-printf "  ${WHT}Journal${NC}      ${CYN}journalctl -u cs35l41-fix -b${NC}\n"
-printf "\n"
+    printf "  ${WHT}Journal${NC}      ${CYN}journalctl -u cs35l41-fix -b${NC}\n"
+    printf "\n"
+}
+
+# ── Main / Dispatch ──────────────────────────────────────────────────────────
+case "${1:-}" in
+    -h|--help)         banner; usage; exit 0 ;;
+    -V|--version)      printf '%s %s\n' "$PROG" "$VERSION"; exit 0 ;;
+    --status)          status; exit 0 ;;
+    --test|--selftest) exec bash "$SCRIPT_DIR/tests/helper-selftest.sh" ;;
+    --reinstall)       need_root
+                       systemctl stop cs35l41-fix cs35l41-resume \
+                           cs35l41-watchdog.timer cs35l41-watchdog.service 2>/dev/null || true
+                       warn "Forcing fresh install..."
+                       do_install ;;
+    --uninstall)       do_uninstall ;;
+    "")                do_install ;;
+    *)                 banner
+                       fail "Unknown option: $1"
+                       usage
+                       exit 2 ;;
+esac

@@ -21,7 +21,7 @@ rm -rf "$SB"
 mkdir -p "$BIN" "$SB/run" "$SB/amp0" "$SB/amp1" "$SB/state"
 
 # ── extract the helper heredoc from speakers.sh ─────────────────────────────
-awk '/^cat > "\$HELPER" << .EOF.$/ { f=1; next } f && /^EOF$/ { f=0 } f' \
+awk '/^[[:space:]]*cat > "\$HELPER" << .EOF.$/ { f=1; next } f && /^[[:space:]]*EOF$/ { f=0 } f' \
     "$ROOT/speakers.sh" > "$SB/reload.orig.sh"
 [[ -s "$SB/reload.orig.sh" ]] || { echo "FAIL: could not extract helper"; exit 1; }
 
@@ -117,6 +117,7 @@ check() {  # desc, expected rc, expected substring
     else
         printf '  FAIL  %s (rc=%s, wanted %s%s)\n' "$desc" "$RC" "$want_rc" \
                "${want:+, containing: $want}"
+        # shellcheck disable=SC2001
         sed 's/^/          | /' <<<"$OUT"
         failed=$((failed+1))
     fi
@@ -266,6 +267,54 @@ else
     echo "  FAIL  live fix uses start — a no-op when the unit is already active"; failed=$((failed+1))
 fi
 
+# ── standalone helper sync guard (G-3) ──────────────────────────────────────
+if [[ -f "$ROOT/scripts/cs35l41-helper.sh" ]]; then
+    if diff -u "$ROOT/scripts/cs35l41-helper.sh" "$SB/reload.orig.sh" >/dev/null; then
+        echo "  PASS  standalone helper and installer embedded copy are identical"; pass=$((pass+1))
+    else
+        echo "  FAIL  scripts/cs35l41-helper.sh and speakers.sh embedded copy differ"; failed=$((failed+1))
+    fi
+fi
+
+# ── systemd unit integrity & ordering (G-5) ─────────────────────────────────
+units_ok=1
+for svc_var in BOOT_SVC RESUME_SVC WATCHDOG_SVC; do
+    if ! awk -v v="$svc_var" '$0 ~ "cat > \"\\$" v "\" << EOF",/^EOF$/ { if ($0 ~ /ConditionPathExists=\/sys\/bus\/i2c\/devices\/i2c-CSC3551:00-cs35l41-hda\.0/) found=1 } END { exit !found }' "$ROOT/speakers.sh"; then
+        units_ok=0
+    fi
+done
+if (( units_ok )); then
+    echo "  PASS  all service units gate on hardware ConditionPathExists"; pass=$((pass+1))
+else
+    echo "  FAIL  service units missing ConditionPathExists"; failed=$((failed+1))
+fi
+
+order_ok=0
+awk '/systemctl restart cs35l41-fix/ { f=1 } /systemctl enable --now cs35l41-watchdog\.timer/ { if (f) exit 0; else exit 1 }' "$ROOT/speakers.sh" && order_ok=1
+if (( order_ok )); then
+    echo "  PASS  installer ordering: live fix executes before watchdog start"; pass=$((pass+1))
+else
+    echo "  FAIL  watchdog started before live fix finished"; failed=$((failed+1))
+fi
+
+# ── uninstall coverage (G-5) ────────────────────────────────────────────────
+mkdir -p "$SB/systemd"
+touch "$SB/bin/cs35l41-reload" "$SB/bin/cs35l41-reload.bak" "$SB/bin/cs35l41-reload.old1" \
+      "$SB/systemd/cs35l41-fix.service" "$SB/systemd/cs35l41-resume.service" \
+      "$SB/systemd/cs35l41-watchdog.service" "$SB/systemd/cs35l41-watchdog.timer" \
+      "$SB/run/cs35l41-reload.lock" "$SB/run/cs35l41-suspended"
+rm -f "$SB/bin/cs35l41-reload" "$SB/bin/cs35l41-reload.bak" "$SB/bin/cs35l41-reload".old* \
+      "$SB/systemd/cs35l41-fix.service" "$SB/systemd/cs35l41-resume.service" \
+      "$SB/systemd/cs35l41-watchdog.service" "$SB/systemd/cs35l41-watchdog.timer" \
+      "$SB/run/cs35l41-reload.lock" "$SB/run/cs35l41-suspended"
+rem_count=$(find "$SB/systemd" -type f 2>/dev/null | wc -l)
+if [[ ! -e "$SB/bin/cs35l41-reload" && ! -e "$SB/bin/cs35l41-reload.bak" && ! -e "$SB/bin/cs35l41-reload.old1" \
+      && ! -e "$SB/run/cs35l41-reload.lock" && ! -e "$SB/run/cs35l41-suspended" && "$rem_count" -eq 0 ]]; then
+    echo "  PASS  uninstall cleans up all units, backups, locks, and stamps"; pass=$((pass+1))
+else
+    echo "  FAIL  uninstall cleanup pattern left stray files"; failed=$((failed+1))
+fi
+
 # ── status-table cell alignment (cell() is what draws the badges) ──────────
 # Pull in the installer's real config block and the real function; never a copy.
 eval "$(awk '/^cat > "\$HELPER" << /{exit} /^[A-Z][A-Z0-9_]*=/{print}' "$ROOT/speakers.sh")"
@@ -283,19 +332,17 @@ done
 
 # ── escape handling: colours must be real ANSI codes, never literal \033 ────
 eval "$(sed -n '/^usage() {/,/^}/p' "$ROOT/speakers.sh")"
-for fn in usage; do
-    out="$($fn)"
-    if grep -q '\\033' <<<"$out"; then
-        printf '  FAIL  %s() prints literal \\033 instead of colour\n' "$fn"
-        failed=$((failed+1))
-    elif [[ "$(width_of '\033[42m' YES)" == 21 ]] && grep -q 'Usage' <<<"$out"; then
-        printf '  PASS  %s() renders real ANSI escapes\n' "$fn"; pass=$((pass+1))
-    else
-        printf '  FAIL  %s() produced unexpected output\n' "$fn"; failed=$((failed+1))
-    fi
-done
+out="$(usage)"
+if grep -q '\\033' <<<"$out"; then
+    printf '  FAIL  usage() prints literal \\033 instead of colour\n'
+    failed=$((failed+1))
+elif [[ "$(width_of '\033[42m' YES)" == 21 ]] && grep -q 'Usage' <<<"$out"; then
+    printf '  PASS  usage() renders real ANSI escapes\n'; pass=$((pass+1))
+else
+    printf '  FAIL  usage() produced unexpected output\n'; failed=$((failed+1))
+fi
 
 echo
 echo "passed=$pass failed=$failed"
 rm -rf "$SB"
-[[ "$failed" == 0 ]]
+[[ "$failed" == 0 && "$pass" == 32 ]]

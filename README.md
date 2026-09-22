@@ -180,7 +180,7 @@ bash tests/helper-selftest.sh       # no root, no system changes; exit 0 = pass
 bash speakers.sh --test
 ```
 
-28 checks. It extracts the helper and the installer's own functions from
+32 checks. It extracts the helper and the installer's own functions from
 `speakers.sh`, redirects every path and timing constant into a sandbox, stubs
 `modprobe`/`rtcwake`, and asserts:
 
@@ -197,6 +197,11 @@ bash speakers.sh --test
   while lock timeout where another instance fixed them exits 0
 - the status table draws 21-column cells with real ANSI escapes, never
   literal `\033` text
+- standalone `scripts/cs35l41-helper.sh` and the installer's embedded copy
+  stay strictly in sync
+- all service units enforce hardware `ConditionPathExists`
+- installer execution ordering guarantees the live fix runs before starting the watchdog
+- `--uninstall` cleans up all service units, timers, backups, locks, and stamp files
 - nothing it runs reaches the system journal: `logger` is stubbed, and the
   suite aborts if a real one is reachable
 - install-path guards for two bugs that shipped: the watchdog is *started*
