@@ -38,7 +38,7 @@ bash speakers.sh --test             # Run 34-check test suite
 
 ## How It Works
 
-1. **Boot Recovery (`cs35l41-fix.service`)**: Retries amplifier binding at boot with fast polling. If the bus is clamped, cycles power via a brief 3 s suspend fallback.
+1. **Boot Recovery (`cs35l41-fix.service`)**: Retries amplifier binding at boot with fast polling. If the bus is clamped, cycles power via a brief 5 s suspend fallback.
 2. **Resume Hook (`cs35l41-resume.service`)**: Ensures amplifiers rebind cleanly after suspend/hibernate.
 3. **Safety Watchdog (`cs35l41-watchdog.timer`)**: Checks binding every 5 minutes during the initial boot window.
 

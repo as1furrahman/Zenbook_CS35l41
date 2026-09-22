@@ -546,12 +546,12 @@ if ! command -v rtcwake >/dev/null 2>&1; then
     exit 1
 fi
 
-log "trying suspend/resume fallback (machine will sleep ~3s)..."
+log "trying suspend/resume fallback (machine will sleep ~5s)..."
 # Drop the lock across the sleep so cs35l41-resume.service can reload the
 # modules the instant the kernel comes back — the moment most likely to
 # succeed, because the rail has just been re-powered.
 flock -u 9
-if rtcwake -m mem -s 3 2>/dev/null; then
+if rtcwake -m mem -s 5 2>/dev/null; then
     date +%s > "$STAMP" 2>/dev/null || true
 else
     log "rtcwake failed; continuing without a power cycle."
@@ -595,12 +595,12 @@ cat > "$BOOT_SVC" << EOF
 Description=CS35L41 speaker fix (boot) v${VERSION}
 Documentation=https://github.com/as1furrahman/Zenbook_CS35l41
 ConditionPathExists=/sys/bus/i2c/devices/i2c-CSC3551:00-cs35l41-hda.0
-After=sound.target multi-user.target
+After=sound.target multi-user.target graphical.target
 Wants=sound.target
 
 [Service]
 Type=oneshot
-ExecStartPre=/bin/sleep 8
+ExecStartPre=/bin/sleep 15
 ExecStart=/usr/local/bin/cs35l41-reload --fallback
 RemainAfterExit=yes
 TimeoutStartSec=300
@@ -666,7 +666,7 @@ ok "Boot + resume services enabled"
 
 if [[ ! -e "$AMP0" || ! -e "$AMP1" ]]; then
     warn "Speakers not working — attempting live fix..."
-    printf "  ${DIM}   (up to ~2 min; the machine may sleep for ~3 s)${NC}\n"
+    printf "  ${DIM}   (up to ~2 min; the machine may sleep for ~5 s)${NC}\n"
     # restart, not start: the unit is RemainAfterExit=yes, so a prior
     # successful run leaves it "active" and a plain start would do nothing.
     if systemctl restart cs35l41-fix 2>/dev/null && [[ -e "$AMP0" && -e "$AMP1" ]]; then

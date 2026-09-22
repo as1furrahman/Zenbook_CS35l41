@@ -196,12 +196,12 @@ if ! command -v rtcwake >/dev/null 2>&1; then
     exit 1
 fi
 
-log "trying suspend/resume fallback (machine will sleep ~3s)..."
+log "trying suspend/resume fallback (machine will sleep ~5s)..."
 # Drop the lock across the sleep so cs35l41-resume.service can reload the
 # modules the instant the kernel comes back — the moment most likely to
 # succeed, because the rail has just been re-powered.
 flock -u 9
-if rtcwake -m mem -s 3 2>/dev/null; then
+if rtcwake -m mem -s 5 2>/dev/null; then
     date +%s > "$STAMP" 2>/dev/null || true
 else
     log "rtcwake failed; continuing without a power cycle."
