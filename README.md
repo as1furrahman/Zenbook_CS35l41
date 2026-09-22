@@ -1,5 +1,9 @@
 # Zenbook_CS35l41
 
+[![Self-Test CI](https://github.com/as1furrahman/Zenbook_CS35l41/actions/workflows/selftest.yml/badge.svg)](https://github.com/as1furrahman/Zenbook_CS35l41/actions/workflows/selftest.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Version: v1.4.0](https://img.shields.io/badge/version-1.4.0-green.svg)](https://github.com/as1furrahman/Zenbook_CS35l41/releases)
+
 **ASUS Zenbook UM5302TA — CS35L41 Speaker Fix** (v1.4.0)
 
 Fixes the Cirrus Logic CS35L41 smart amplifiers failing to probe on cold boot
