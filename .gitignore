@@ -1,0 +1,9 @@
+# Test sandbox
+.selftest/
+
+# Backups and temporary files
+*.bak
+*.old*
+*.tmp
+*~
+.DS_Store
