@@ -171,12 +171,15 @@ available, and when the suspend fallback last ran.
 | 1 | Could not fix within the full budget, or lock wait timed out with amps still unbound |
 | 2 | Refused to act — the module is in use by playing audio |
 
-## Tests
+## Tests & Development
+
+Running developer lint targets (`make test` or `make lint`) requires `shellcheck`:
 
 ```bash
-make test                           # runs lint + tests
-# or:
-bash tests/helper-selftest.sh       # no root, no system changes; exit 0 = pass
+sudo apt install shellcheck         # Debian / Ubuntu (optional; developer tooling)
+make test                           # runs syntax lint + shellcheck + selftest suite
+# or without developer dependencies:
+bash tests/helper-selftest.sh       # hermetic sandbox suite; exit 0 = pass
 bash speakers.sh --test
 ```
 

@@ -33,13 +33,13 @@ sed -e "s|^DEV0=.*|DEV0=\"$SB/amp0\"|" \
     -e "s|/proc/modules|$SB/proc_modules|g" \
     -e "s|/proc/uptime|$SB/proc_uptime|g" \
     -e "s|^ATTEMPTS=.*|ATTEMPTS=3|" \
-    -e "s|^WAIT_BIND=.*|WAIT_BIND=0|" \
-    -e "s|^BACKOFF_MAX=.*|BACKOFF_MAX=0|" \
+    -e "s|^WAIT_BIND=.*|WAIT_BIND=1|" \
+    -e "s|^BACKOFF_MAX=.*|BACKOFF_MAX=1|" \
     -e "s|^LOCK_WAIT=.*|LOCK_WAIT=1|" \
     -e "s|^ESCALATE_INTERVAL=.*|ESCALATE_INTERVAL=180|" \
     -e "s|^ESCALATE_MAX_UPTIME=.*|ESCALATE_MAX_UPTIME=600|" \
-    -e "s|sleep 0.5|sleep 0.02|g" \
-    -e "s|sleep 1|sleep 0.02|g" \
+    -e "s|sleep 0.5|sleep 0.1|g" \
+    -e "s|sleep 1|sleep 0.1|g" \
     "$SB/reload.orig.sh" > "$SB/reload.sh"
 chmod +x "$SB/reload.sh"
 bash -n "$SB/reload.sh" || { echo "FAIL: helper has syntax errors"; exit 1; }
@@ -230,7 +230,7 @@ wait "$locker" 2>/dev/null
 check "waits out a competing instance" 0 "fixed (attempt 1/3)"
 
 reset_state
-( exec 8>"$SB/run/cs35l41-reload.lock"; flock 8; sleep 1.4 ) &
+( exec 8>"$SB/run/cs35l41-reload.lock"; flock 8; sleep 3 ) &
 locker=$!
 sleep 0.2
 run_helper --fallback
@@ -245,7 +245,7 @@ reset_state
     sleep 0.2
     : > "$SB/amp0/driver"
     : > "$SB/amp1/driver"
-    sleep 1.4
+    sleep 2.5
 ) &
 locker=$!
 sleep 0.1

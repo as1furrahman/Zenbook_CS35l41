@@ -341,6 +341,9 @@ do_install() {
     if [[ -f "$SCRIPT_DIR/scripts/cs35l41-helper.sh" ]]; then
         cp -f "$SCRIPT_DIR/scripts/cs35l41-helper.sh" "$HELPER"
     else
+        # Standalone distribution fallback: allows speakers.sh to execute directly
+        # via `curl | bash` without cloning the repository.
+        # Parity-tested by tests/helper-selftest.sh (asserts byte-for-byte identity).
 cat > "$HELPER" << 'EOF'
 #!/bin/bash
 # Version: 1.4.0

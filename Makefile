@@ -19,10 +19,10 @@ test: lint
 status:
 	@bash speakers.sh --status
 
-install: lint
+install:
 	sudo bash speakers.sh
 
-reinstall: lint
+reinstall:
 	sudo bash speakers.sh --reinstall
 
 uninstall:
