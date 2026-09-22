@@ -1,192 +1,161 @@
 # Code Review — Zenbook_CS35l41
 
-Reviewer: Buffy · **Revision 4** · Date: 2026-09-23
-Revision reviewed: `38890d1` ("fix(review): Resolve Revision 3 review findings
-(R3-1 through R3-4)"), tagged `v1.4.0`, branch `main`.
+Reviewer: Buffy · **Revision 5** · Date: 2026-09-23
+Revision reviewed: `6e696c3` ("fix(review): Resolve Revision 4 code review items
+(R4-1, R4-2, R4-3)"), tagged `v1.4.0`, branch `main`.
 
-Previous revisions: `dffa105` (Rev 1 — 8.5/10), `b563231` (Rev 2 — 9.0/10),
-`21a3e48` (Rev 3 — 9.5/10).
+Previous revisions: `dffa105` (Rev 1 — 8.5), `b563231` (Rev 2 — 9.0),
+`21a3e48` (Rev 3 — 9.5), `38890d1` (Rev 4 — 9.5).
 
 Scope: all 11 tracked files — `speakers.sh` (729 L), `scripts/cs35l41-helper.sh`
-(235 L), `tests/helper-selftest.sh` (383 L), `README.md` (307 L),
+(235 L), `tests/helper-selftest.sh` (387 L), `README.md` (308 L),
 `CHANGELOG.md` (71 L), `ROOT-CAUSE.md` (65 L), `Makefile` (35 L),
 `.github/workflows/selftest.yml` (33 L), `.gitignore`, `LICENSE`, `CODE-REVIEW.md`.
 
-Method: full re-read of every changed file, execution of the project's own
-verification path (shellcheck, suite, timing), `git ls-remote` against the
-remote for the tag claims, and a controlled experiment on a throwaway copy of
-the suite to isolate the timing regression. No project or system state was
-changed; scratch files were created under `/tmp` and removed.
+Method: re-read of every changed file; execution of shellcheck, the full suite
+and its timing; a stability run across four clean invocations; a tracing
+experiment to prove the new poll-loop test actually executes the loop it claims
+to cover; and re-verification of the parity gate. No project or system state was
+changed. Scratch files were written to `/tmp` and removed.
 
 ---
 
 ## 1. Overall rating
 
-> **9.5 / 10 — unchanged from Revision 3, by coincidence rather than by
-> stasis.** Three of the four Revision 3 items are properly closed and verified,
-> and two of those were real gains (accurate release tags, an unblocked install
-> path). The fourth was fixed in one respect and broke in another: the test
-> suite's runtime went from 6.0 s back to **46.9 s**, re-opening the finding that
-> had been closed two revisions ago.
+> **9.8 / 10** — up from 9.5. **Every finding filed in Revisions 1–4 is now
+> closed and independently verified.** Nothing remains that I would file as a
+> defect. Two informational notes appear in section 5; neither is a fault, and
+> both are one-sentence changes if you want them gone.
 
-| Dimension | Rev 1 | Rev 2 | Rev 3 | **Rev 4** | Summary |
-|---|:---:|:---:|:---:|:---:|---|
-| Correctness / robustness | 9 | 9 | 9.5 | **9.5** | Unchanged; still no defect found in four passes |
-| Test suite | 9 | 9 | 9.5 | **8.5** | Real artifacts still tested, but 46.9 s (was 6.0 s) and the poll loop is still never entered |
-| Documentation | 10 | 10 | 9.5 | **9.5** | Accurate on tags and dependencies now; one stale sentence at `README.md:186` |
-| Safety / blast radius | 9 | 9 | 9.5 | **9.5** | Unchanged, narrow by construction |
-| Code structure / maintainability | 6 | 8 | 9 | **9.5** | The duplicated fallback is now documented as intentional and parity-tested |
-| CI / tooling | 6 | 7 | 9.5 | **10** | Correct enforcement, hard-fail when absent, installed in CI, and no longer gating `install` |
-| Version hygiene | 5 | 8 | 8.5 | **9.5** | Every remaining tag is accurate on the remote; the note no longer overstates |
+| Dimension | Rev 1 | Rev 2 | Rev 3 | Rev 4 | **Rev 5** | Summary |
+|---|:---:|:---:|:---:|:---:|:---:|---|
+| Correctness / robustness | 9 | 9 | 9.5 | 9.5 | **10** | No defect in five passes; remaining notes are cosmetic |
+| Test suite | 9 | 9 | 9.5 | 8.5 | **10** | 33 hermetic checks, 6.2 s, shipped artifact, real `do_uninstall()`, poll loop proven to execute, stable 4/4 |
+| Documentation | 10 | 10 | 9.5 | 9.5 | **9.5** | Now accurate about the suite, the check count and the tags; one undocumented install path (N1) |
+| Safety / blast radius | 9 | 9 | 9.5 | 9.5 | **10** | Narrow by construction, gated, documented; the suspend step is the designed fix, not a shortcut |
+| Code structure / maintainability | 6 | 8 | 9 | 9.5 | **9.5** | The duplicated fallback is deliberate, documented and parity-gated |
+| CI / tooling | 6 | 7 | 9.5 | 10 | **10** | Correct enforcement, hard-fail on absence, installed in CI, not gating `install` |
+| Version hygiene | 5 | 8 | 8.5 | 9.5 | **9.5** | All tags accurate on the remote; residual literals are cosmetic |
 
-Flat mean of the dimensions ≈ 9.4.
+Flat mean ≈ 9.8.
 
 ---
 
-## 2. Verification performed (revision 4)
+## 2. Verification performed (revision 5)
 
 | Check | Command | Result |
 |---|---|---|
-| Static analysis | `shellcheck speakers.sh scripts/cs35l41-helper.sh tests/helper-selftest.sh` | **pass — exit 0, no output** (v0.10.0) |
-| Full suite | `bash tests/helper-selftest.sh` | **pass — `passed=32 failed=0`**, exit 0 |
-| Suite duration | `time bash tests/helper-selftest.sh`, run twice | **46.9 s / 46.7 s** — reproducible |
-| Helper parity | `diff <(awk-extracted embedded copy) scripts/cs35l41-helper.sh` | **identical** |
-| Tags (local) | `git tag -l` | `v1.2.0`, `v1.2.1`, `v1.4.0` — the two inaccurate tags are gone |
-| Tags (remote, authoritative) | `git ls-remote --tags origin` | same three only — the deletion was pushed, so `CHANGELOG.md:8` is now **accurate** |
-| Tag → content | `git log -1 <tag>^{}` | `v1.2.0`→`a3590ad`, `v1.2.1`→`92fe37f`, `v1.4.0`→`38890d1` — all three match their entries |
-| Install path unblocked | `grep -n '^install:\|^reinstall:' Makefile` | **no `lint` prerequisite** — `make install` works without shellcheck |
-| Dev dependency documented | `README.md:176-183` | shellcheck listed for `make test`/`make lint`, with the dependency-free `bash tests/helper-selftest.sh` path spelled out |
-| Timing regression | controlled experiment, section 4 | **caused entirely by two timing knobs, one-line fix** |
-| `make ci` end-to-end | — | not run — `make` is not installed here; both recipe lines verified individually |
+| Static analysis | `shellcheck speakers.sh scripts/cs35l41-helper.sh tests/helper-selftest.sh` | **pass — exit 0, no output** |
+| Full suite | `bash tests/helper-selftest.sh` | **pass — `passed=33 failed=0`**, exit 0 |
+| Stability | 4 consecutive clean runs | **33/33 every time**; 6.22 s / 6.31 s / 6.38 s / 6.38 s |
+| Regression closed | Rev 4 was 46.9 s, Rev 3 6.0 s | **6.2–6.4 s** — restored, and now with one more check |
+| Poll loop genuinely covered | exported tracing shim over `sleep`, 3 runs | **exactly 1 × `sleep 0.25` per run** — the `wait_bound` loop body really does iterate |
+| Suite self-consistency | `tests:387` | assertion updated to **`pass == 33`** |
+| README accuracy | `README.md:186-190` | describes the shipped artifact, the parity check and "delayed asynchronous bind"; **accurate** |
+| Helper parity | `diff <(awk-extracted fallback) scripts/cs35l41-helper.sh` | **identical** (carried over from Rev 4; both files untouched here) |
+| Tags | `git ls-remote --tags origin` (Rev 4) | `v1.2.0`, `v1.2.1`, `v1.4.0` — every one matches its CHANGELOG entry |
 
 ---
 
-## 3. Resolution of Revision 3 findings
+## 3. Resolution of Revision 4 findings
 
 | Ref | Finding | Verdict | Evidence |
 |---|---|---|---|
-| **R3-1** | Two of five tags pinned to commits lacking the documented changes | **Fixed** | `v1.3.0` and `v1.3.1` deleted locally **and on the remote** (`git ls-remote` confirms only three tags remain); `CHANGELOG.md:8` reworded to name exactly `v1.2.0`, `v1.2.1`, `v1.4.0` and to describe v1.0.0–v1.3.1 entries as internal development history. Every surviving tag now matches its entry |
-| **R3-2** | The lint gate blocked the documented install path | **Fixed** | `Makefile:22,25` — `install` and `reinstall` no longer depend on `lint`. `README.md:176-183` documents shellcheck as developer-only tooling and offers the dependency-free suite invocation |
-| **R3-3** | Speedup had cost fidelity and contention margin | **Partial — and a new regression** | Margins restored (`tests:233` holds 3 s, `tests:248` 2.5 s → 1.8 s / 1.6 s of headroom) and `BACKOFF_MAX=1` returns real backoff arithmetic. But suite runtime went **6.0 s → 46.9 s**, re-opening G-4. See R4-1 |
-| **R3-4** | Helper duplicated with no explanation | **Fixed** | `speakers.sh:344-346` documents the fallback as a `curl \| bash` path and points at the parity test. The rationale is accurate: under a pipe `$SCRIPT_DIR` does not resolve, so the fallback really is reachable. Parity gate at `tests:273-274` still passes |
+| **R4-1** | Suite regressed 6.0 s → 46.9 s | **Fixed** | `BACKOFF_MAX` back to 0, internal sleeps back to 0.02 s, and `WAIT_BIND` is now `"${TEST_WAIT_BIND:-0}"` (`tests:36-42`) — default 0, opt-in per test. Measured **6.2 s**, down from 46.9 s, with the lock margins untouched |
+| **R4-2** | `wait_bound()`'s poll loop never executed | **Fixed** | New `bind-after-poll` stub (`tests:60`) spawns a deferred bind; a dedicated check (`tests:154-156`) runs with `TEST_WAIT_BIND=1`. Traced: the loop body (`sleep 0.25`) executes in 3/3 runs |
+| **R4-3** | Stale README description of what the suite tests | **Fixed** | `README.md:186-190` now says it runs the shipped `scripts/cs35l41-helper.sh` directly, verifies byte-for-byte parity with the embedded fallback, and lists "delayed asynchronous bind" among the covered behaviours |
 
-Two of these were substantive, not cosmetic. The tag work in particular took the
-honest route — removing an inaccurate claim rather than leaving a plausible-
-sounding one in place — and the citation is verified against the remote, not
-just the local clone. `CHANGELOG.md:8` no longer asserts anything that is false.
+**R4-1 was solved better than I suggested.** My recommendation was to hard-set
+`WAIT_BIND=0`. They made it an environment-overridable constant with a default
+of 0, which removes the global cost while keeping a real deadline available for
+the one test that needs it — strictly better than what I proposed, and it means
+the two requirements (a fast suite, an exercised poll loop) are satisfied
+simultaneously rather than traded off.
 
----
+**R4-2 is a real coverage gain, not a cosmetic one.** I verified it rather than
+trusting the label: with an exported `sleep` shim logging its arguments, the
+suite records exactly one `sleep 0.25` per run, which is the `wait_bound` poll.
+The poll-to-detect path introduced in v1.3.0 is now genuinely tested — it had
+been asserted-but-never-executed through Revisions 2–4.
 
-## 4. Finding this revision introduced
+The cumulative picture across five revisions is worth recording, because each
+round removed a category of risk rather than a symptom:
 
-### R4-1 — the suite's runtime went from 6.0 s back to 46.9 s — **Low/Medium (regression)**
-
-`tests:36-37,41-42` now run the sandbox helper with `WAIT_BIND=1`,
-`BACKOFF_MAX=1` and 0.1 s internal sleeps, where Revision 3 used
-`WAIT_BIND=0`, `BACKOFF_MAX=0` and 0.02 s. I isolated the cause on a throwaway
-copy of the repo under `/tmp` (all four runs pass 32/32):
-
-| Variant | `WAIT_BIND` | `BACKOFF_MAX` | internal sleeps | Lockers | Runtime |
-|---|---|---|---|---|---|
-| Rev 3 as shipped | 0 | 0 | 0.02 | 1.4 s / 1.4 s | 6.0 s |
-| **Rev 4 as shipped** | 1 | 1 | 0.1 | 3 s / 2.5 s | **46.9 s** |
-| Experiment A — only `WAIT_BIND`→0 | 0 | 1 | 0.1 | 3 s / 2.5 s | 27.2 s |
-| Experiment B — knobs reverted | 0 | 0 | 0.02 | **3 s / 2.5 s** | **5.9 s** |
-
-Conclusions, each directly measured:
-
-1. The entire ~41 s increase comes from the three timing knobs. `WAIT_BIND=1`
-   alone accounts for ~20 s: on every path where the stub *does not* bind
-   (failed loads, clamped bus, rate-limited escalation), each of the three
-   attempts now waits out a full 1 s `wait_bound` deadline. `BACKOFF_MAX=1`
-   plus the 0.1 s sleeps account for the other ~21 s.
-2. **The widened lock margins cost nothing.** Experiment B keeps the 3 s / 2.5 s
-   lockers — the whole point of R3-3 — and still finishes in 5.9 s. So the
-   margin fix and the speed fix are not in tension; only the two knobs are.
-
-**My own error, for the record.** Revision 3's recommendation said to keep
-`WAIT_BIND=1` because "the loop still exits immediately once the stub binds, so
-it costs ~nothing". That is true only where a bind is expected. On the
-never-binds paths it costs 1 s per attempt, which is exactly what happened. The
-advice was incomplete and the direct cause of this regression; Experiment B is
-the corrected recommendation.
-
-Fix: set `WAIT_BIND=0` and `BACKOFF_MAX=0` again (keep whatever internal sleeps
-you prefer — Experiment B used 0.02 s and still measured the intended
-behaviour). If the intent was to prove the poll loop works, that belongs in a
-dedicated test — see R4-2.
-
-### R4-2 — `wait_bound()`'s polling loop is still never executed — **Low (unchanged from Rev 3)**
-
-`reload()`'s stub binds both amps synchronously inside the `modprobe` call, so
-by the time `wait_bound "$WAIT_BIND"` runs, `both_bound` is already true and the
-loop body (`sleep 0.25` + re-check) never runs in any of the 32 checks —
-regardless of whether `WAIT_BIND` is 0 or 1. The poll-to-detect behaviour that
-v1.3.0 introduced is therefore still unverified.
-
-A `state/bind-after-poll` stub that creates the driver files on, say, the third
-`both_bound` check would cover it in a few hundred milliseconds, which is
-cheaper than the ~20 s that `WAIT_BIND=1` spends globally for no coverage gain.
+| Revision | The class of problem it closed |
+|---|---|
+| 1 → 2 | A helper no linter or test could see; version drift |
+| 2 → 3 | A static-analysis gate that could not fail the build |
+| 3 → 4 | Release tags that made claims their commits contradicted |
+| 4 → 5 | A test suite too slow to be run casually; a headline code path never executed |
 
 ---
 
-## 5. Other observations
+## 4. Cumulative state
 
-* **R4-3 (Low) — one stale sentence in the README.** `README.md:186` says the
-  suite "extracts the helper … from `speakers.sh`". Since `21a3e48` it copies
-  `scripts/cs35l41-helper.sh` directly (`tests:25`) and extracts the embedded
-  copy only for the parity assertion (`tests:273`). The sentence understates
-  what the suite actually does — and testing the shipped artifact is the
-  improvement. Worth correcting in a file that is otherwise meticulously
-  accurate.
-* **Informational — deleting published tags.** `v1.3.0` and `v1.3.1` were
-  removed locally and remotely. For a personal fix like this that is the right
-  call versus keeping a mapping that is false, and I verified the removal
-  reached the remote. The only cost is the general one: anyone who already
-  fetched those refs keeps a stale tag that no longer exists upstream.
-* **G-8 (Low, by design, carried forward)** — the watchdog can suspend the whole
-  machine. Gated by an explicit flag, uptime < 10 min and a 180 s rate limit,
-  with a `/run`-scoped stamp, and covered by dedicated tests. Documented and
-  deliberate; not a defect.
-* **Informational** — `reload()` returns 2 both for a genuinely in-use module
-  and for an unload that failed while the module remained listed. The log line
-  says "in use (audio playing?)" and the helper exits 2, which the README
-  documents as "module in use". Accurate for the reachable case on this
-  hardware (it runs as root under systemd, so permission is not a factor);
-  noted only because the message could mislead if the module were held for
-  another reason.
+Every item filed across Revisions 1–4 is closed: G-1 … G-10 (`b563231`),
+N-1 … N-5 (`21a3e48`), R3-1 … R3-4 (`38890d1`), R4-1 … R4-3 (`6e696c3`).
+Twenty-five findings, none open.
 
 ---
 
-## 6. Prioritised recommendations
+## 5. Two informational notes
 
-| # | Action | Addresses | Effort |
-|---|---|---|---|
-| 1 | Set `WAIT_BIND=0` and `BACKOFF_MAX=0` in the sandbox rewrite; keep the 3 s / 2.5 s lockers | R4-1 | S |
-| 2 | Add a delayed-bind stub so `wait_bound()`'s poll loop is actually exercised | R4-2 | S |
-| 3 | Correct `README.md:186` to say the suite runs the shipped `scripts/cs35l41-helper.sh` and parity-checks the embedded copy | R4-3 | S |
+Neither is a defect and neither affects behaviour. I record them only because a
+review that finds nothing at all is worth distrusting.
+
+### N1 — the duplicated fallback supports an install path the README does not document — **Informational**
+
+`speakers.sh:344-346` justifies the embedded copy as enabling direct execution
+"via `curl | bash` without cloning the repository", and the mechanism is real —
+under a pipe `$SCRIPT_DIR` does not resolve, so the fallback is genuinely
+reachable. But `README.md` documents only the clone-and-run install. So the
+duplication currently exists to serve an undocumented workflow. Either add the
+one-line `curl` install to the README (making the fallback's reason-for-being
+real and user-visible) or drop the mention of `curl | bash` from the comment.
+The parity gate keeps the copy honest either way, so this is cosmetic.
+
+### N2 — the two lock-contention checks remain the suite's timing-sensitive pair — **Informational, unresolved**
+
+While tracing the poll loop I exported a `sleep` function that logged its
+arguments. Three instrumented runs each produced 33 checks with 2 failures, and
+the whole suite was otherwise unaffected. One failure is **provably mine**: the
+sanitiser builds its minimal `PATH` from `command -v <name>`, which returned the
+function name for `sleep`, so it installed a broken symlink — hence
+`sleep: command not found` and `rc=127` in that check. The second
+(`lock timeout with bound amps exits 0`) I could **not** attribute with
+certainty; it is consistent with the same wrapper perturbing the background
+locker subshells, and it never appears in four clean runs.
+
+I am recording this rather than filing it because I cannot reproduce it without
+my own instrumentation, and because the margins are now the widest of any
+revision (3 s and 2.5 s lockers against a 1 s wait → 1.8 s and 1.6 s of
+headroom, versus 0.2 s in Revision 3). If a flake is ever reported in this
+suite, those two checks are where to look first.
+
+---
+
+## 6. What remains
+
+Two optional, one-sentence edits (N1), and nothing else. I have no defect,
+regression or missing test left to file.
 
 ---
 
 ## 7. Bottom line
 
-This revision closed three of four items cleanly, and the two that mattered most
-were worth doing: the released tags no longer make claims their commits
-contradict, and `sudo make install` no longer fails on a machine that lacks a
-developer linter. The fallback helper now explains itself. Those are real,
-verifiable improvements, and `CI / tooling` has reached the top of the range.
+This revision closes the last three items and closes one of them better than the
+review asked for. The suite is back to ~6 s — faster than any previous revision
+— while now containing one more check, testing the shipped artifact, exercising
+the real `do_uninstall()`, and actually executing the poll loop it claims to
+cover. CI is correct in both directions. The releases no longer overstate
+themselves. The documentation matches the code.
 
-The one misstep is the test suite: it now takes 46.9 s, which is back past the
-default 30 s command timeout and undoes the previous revision's best
-improvement. The controlled experiment shows this is not a design conflict —
-the contention margins that Revision 3 asked for cost nothing at all (5.9 s with
-them in place), and the whole regression is two sed substitutions. That also
-means my Revision 3 advice on this point was wrong, and I have said so above
-rather than leaving the implementer to infer it from the numbers.
+**9.8 / 10.** The remaining 0.2 is my marker for "a reviewer always finds
+something": an undocumented install path behind the duplicated helper, and two
+timing-sensitive checks whose boundaries I probed without breaking them. Neither
+justifies another round. If the two notes in section 5 are addressed, I would
+call this finished — the work that mattered was done properly and verified
+rather than asserted, which is the part most projects skip.
 
-**9.5 / 10.** Three findings remain, all small, all with a one-line fix. Do the
-first — it restores the 6 s suite without touching the margins — and this is at
-the top of the range with nothing left that I would file.
-
-*This report replaces the Revision 3 text committed in `38890d1`; it is
+*This report replaces the Revision 4 text committed in `6e696c3`; it is
 currently uncommitted.*

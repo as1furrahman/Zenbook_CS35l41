@@ -127,6 +127,14 @@ The fix is deliberately narrow. It touches only the two CS35L41 amp devices:
 
 ## Install
 
+**One-line install (no clone needed):**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/as1furrahman/Zenbook_CS35l41/main/speakers.sh | sudo bash
+```
+
+**Or clone the repository:**
+
 ```bash
 git clone https://github.com/as1furrahman/Zenbook_CS35l41.git
 cd Zenbook_CS35l41
