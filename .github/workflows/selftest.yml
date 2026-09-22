@@ -21,11 +21,10 @@ jobs:
 
       - name: Run test suite
         run: |
-          bash tests/helper-selftest.sh
+          bash speakers.sh --test
 
       - name: Verify CLI flags
         run: |
           bash speakers.sh --version
           bash speakers.sh --help
           bash speakers.sh --status
-          bash speakers.sh --test

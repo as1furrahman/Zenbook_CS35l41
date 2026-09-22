@@ -189,10 +189,12 @@ status() {
     banner
     step "DIAGNOSTICS"
 
-    local ver amp0_ok amp1_ok amp_ok boot_st resume_st resume_fail mod_ok
+    local ver="" amp0_ok amp1_ok amp_ok boot_st resume_st resume_fail mod_ok
     local watchdog_st watchdog_en fb_stamp fallback_st suspend_tool hw_ok
 
-    ver="$(sed -n 's/^# Version: //p' "$HELPER" 2>/dev/null | head -n1)"
+    if [[ -f "$HELPER" ]]; then
+        ver="$(sed -n 's/^# Version: //p' "$HELPER" 2>/dev/null | head -n1)"
+    fi
     [[ -n "$ver" ]] || ver="not installed"
 
     hw_ok=$([[ -d "$DEV0" && -d "$DEV1" ]] && echo yes || echo no)
