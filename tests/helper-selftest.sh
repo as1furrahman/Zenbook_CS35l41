@@ -232,7 +232,7 @@ fi
 wait_lock_ready() {
     local sync="$SB/state/lock_ready"
     local deadline=$(( SECONDS + 3 ))
-    while [[ ! -f "$sync" && SECONDS -lt deadline ]]; do
+    while [[ ! -f "$sync" ]] && (( SECONDS < deadline )); do
         sleep 0.02
     done
     [[ -f "$sync" ]] || return 1
@@ -425,7 +425,7 @@ fi
 # Piped execution must leave SCRIPT_DIR empty and refuse to execute or install
 # from an untrusted working directory containing mock files.
 pipe_out="$(
-    cd "$SB"
+    cd "$SB" || exit 1
     mkdir -p tests scripts
     touch tests/helper-selftest.sh scripts/cs35l41-helper.sh
     bash -s -- --test < "$ROOT/speakers.sh" 2>&1 || true
