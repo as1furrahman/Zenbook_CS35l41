@@ -38,7 +38,7 @@ both_bound() { [[ -e "$AMP0" && -e "$AMP1" ]]; }
 
 # ── Inert on hardware without these amplifiers (the units guard on the same
 #    condition, this is belt and braces) ──
-if [[ ! -d "$DEV0" && ! -d "$DEV1" ]]; then
+if [[ ! -d "$DEV0" || ! -d "$DEV1" ]]; then
     log "no CSC3551 amplifier on this system; nothing to do."
     exit 0
 fi
@@ -108,11 +108,12 @@ CTRL="$(basename "$(readlink -f "/sys/bus/i2c/devices/${ADAPTER}/.." 2>/dev/null
 # readlink -f hands back a literal path when a link is missing, so only trust
 # a plausible platform-device name; otherwise disable detection entirely.
 [[ "$CTRL" =~ ^[A-Z0-9]+:[0-9A-F]+$ ]] || CTRL=""
+START_TIME="$(date '+%Y-%m-%d %H:%M:%S')"
 
 clamp_timeouts() {
     [[ -n "$CTRL" ]] || { echo 0; return 0; }
     local n
-    n="$(journalctl -k -b --no-pager -n 2000 2>/dev/null \
+    n="$(journalctl -k -b --since "$START_TIME" --no-pager 2>/dev/null \
          | grep -c -- "${CTRL}: controller timed out" || true)"
     [[ "$n" =~ ^[0-9]+$ ]] || n=0
     echo "$n"
@@ -186,7 +187,7 @@ if [[ "$mode" == "--escalate" ]]; then
     [[ "$last" =~ ^[0-9]+$ ]] || last=0
     age=$(( $(date +%s) - last ))
     if (( age >= 0 && age < ESCALATE_INTERVAL )); then
-        log "suspend fallback ran $(( age / 60 )) min ago; not repeating."
+        log "suspend fallback ran ${age}s ago (< ${ESCALATE_INTERVAL}s); not repeating."
         exit 1
     fi
 fi
@@ -209,8 +210,12 @@ fi
 sleep 1
 
 if ! flock -w "$LOCK_WAIT" 9; then
-    log "another instance took over after resume; exiting."
-    exit 0
+    if both_bound; then
+        log "another instance fixed the amplifiers across suspend; exiting."
+        exit 0
+    fi
+    log "lock held for ${LOCK_WAIT}s after resume; amplifiers still unbound." >&2
+    exit 1
 fi
 
 if both_bound; then

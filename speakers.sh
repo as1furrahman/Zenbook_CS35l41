@@ -18,7 +18,7 @@
 #      --help, plus /run state that the kernel clears on every boot;
 #    * it is inert on any machine without the CSC3551 devices: the helper
 #      exits immediately and each unit carries ConditionPathExists.
-#  The single whole-machine action is a deliberate ~3 s suspend/resume cycle,
+#  The single whole-machine action is a deliberate 5 s suspend/resume cycle,
 #  used only when a module reload cannot fix it (see ROOT-CAUSE.md).
 #
 #  v1.4.0 (lock contract, clock skew, diagnostics & tooling):
@@ -31,7 +31,7 @@
 #     flags failed resume service reloads.
 #   - Added --test CLI flag to dispatch the self-test suite directly.
 #   - Added Makefile and .gitignore for developer workflow and CI.
-#   - Expanded self-test suite to 28 checks with subshell FD locking.
+#   - Expanded self-test suite to 36 checks with subshell FD locking and regression guards.
 #
 #  v1.3.1 (install-path fixes, found by checking the live system):
 #   - The installer now *starts* the watchdog timer, not merely enables it.
@@ -56,9 +56,8 @@
 #   - The watchdog can now escalate: if the reload budget fails it runs the
 #     suspend/resume power cycle itself. Bounded twice over — only while
 #     uptime < 10 min (a boot-time recovery; never power-cycles a machine
-#     someone is using) and at most once per 3 min. In practice that allows a
-#     single watchdog escalation, around the 8-minute mark, after the boot
-#     service's own attempt.
+#     someone is using) and rate-limited (originally 3 min in v1.3.0, reduced
+#     to 60 s in v1.4.0 to unblock the 90 s watchdog timer).
 #   - The reload lock is released across the suspend cycle so
 #     cs35l41-resume.service can reload modules the instant the kernel comes
 #     back. Previously its helper was silently skipped ("another instance
@@ -84,9 +83,9 @@
 #     mid-retry-loop; it is treated as a failed attempt instead.
 #   - Uninstall also stops cs35l41-watchdog.service.
 #
-#  NOTE: when 8 module reloads fail, the machine sleeps for ~3 s
-#  (rtcwake -m mem) — once at boot, and from the watchdog at most once per
-#  3 min while uptime is under 10 minutes. This is intentional: the EC only
+#  NOTE: when 8 module reloads fail, the machine sleeps for 5 s
+#  (rtcwake -m mem -s 5) — once at boot, and from the watchdog at most once per
+#  60 s while uptime is under 10 minutes. This is intentional: the EC only
 #  re-initialises the amp rail across a suspend/resume boundary. It looks
 #  like a brief freeze, and a desktop configured to lock on suspend will
 #  lock the screen.
@@ -105,7 +104,11 @@ PROG="$(basename "$0")"
 if [[ "$0" == "bash" || "$0" == "sh" || "$0" == /dev/fd/* || "$0" == "-"* || "$PROG" == "bash" || "$PROG" == "sh" || "$PROG" =~ ^[0-9]+$ ]]; then
     PROG="speakers.sh"
 fi
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR=""
+_src="${BASH_SOURCE[0]:-$0}"
+if [[ -n "$_src" && "$_src" != "bash" && "$_src" != "sh" && "$_src" != /dev/fd/* && "$_src" != "-"* && -f "$_src" ]]; then
+    SCRIPT_DIR="$(cd "$(dirname "$_src")" && pwd)"
+fi
 
 # ── Hardware ─────────────────────────────────────────────────────────────────
 DEV0="/sys/bus/i2c/devices/i2c-CSC3551:00-cs35l41-hda.0"
@@ -336,12 +339,17 @@ do_install() {
 
     step "INSTALLING COMPONENTS"
 
+    if (( ${REINSTALL:-0} )); then
+        systemctl stop cs35l41-fix cs35l41-resume \
+            cs35l41-watchdog.timer cs35l41-watchdog.service 2>/dev/null || true
+    fi
+
     # ── 1. Helper script ────────────────────────────────────────────────────────
     if [[ -f "$HELPER" ]]; then
         cp -f "$HELPER" "${HELPER}.bak" 2>/dev/null || true
     fi
 
-    if [[ -f "$SCRIPT_DIR/scripts/cs35l41-helper.sh" ]]; then
+    if [[ -n "$SCRIPT_DIR" && -f "$SCRIPT_DIR/speakers.sh" && -f "$SCRIPT_DIR/scripts/cs35l41-helper.sh" ]]; then
         cp -f "$SCRIPT_DIR/scripts/cs35l41-helper.sh" "$HELPER"
     else
         # Standalone distribution fallback: allows speakers.sh to execute directly
@@ -388,7 +396,7 @@ both_bound() { [[ -e "$AMP0" && -e "$AMP1" ]]; }
 
 # ── Inert on hardware without these amplifiers (the units guard on the same
 #    condition, this is belt and braces) ──
-if [[ ! -d "$DEV0" && ! -d "$DEV1" ]]; then
+if [[ ! -d "$DEV0" || ! -d "$DEV1" ]]; then
     log "no CSC3551 amplifier on this system; nothing to do."
     exit 0
 fi
@@ -458,11 +466,12 @@ CTRL="$(basename "$(readlink -f "/sys/bus/i2c/devices/${ADAPTER}/.." 2>/dev/null
 # readlink -f hands back a literal path when a link is missing, so only trust
 # a plausible platform-device name; otherwise disable detection entirely.
 [[ "$CTRL" =~ ^[A-Z0-9]+:[0-9A-F]+$ ]] || CTRL=""
+START_TIME="$(date '+%Y-%m-%d %H:%M:%S')"
 
 clamp_timeouts() {
     [[ -n "$CTRL" ]] || { echo 0; return 0; }
     local n
-    n="$(journalctl -k -b --no-pager -n 2000 2>/dev/null \
+    n="$(journalctl -k -b --since "$START_TIME" --no-pager 2>/dev/null \
          | grep -c -- "${CTRL}: controller timed out" || true)"
     [[ "$n" =~ ^[0-9]+$ ]] || n=0
     echo "$n"
@@ -536,7 +545,7 @@ if [[ "$mode" == "--escalate" ]]; then
     [[ "$last" =~ ^[0-9]+$ ]] || last=0
     age=$(( $(date +%s) - last ))
     if (( age >= 0 && age < ESCALATE_INTERVAL )); then
-        log "suspend fallback ran $(( age / 60 )) min ago; not repeating."
+        log "suspend fallback ran ${age}s ago (< ${ESCALATE_INTERVAL}s); not repeating."
         exit 1
     fi
 fi
@@ -559,8 +568,12 @@ fi
 sleep 1
 
 if ! flock -w "$LOCK_WAIT" 9; then
-    log "another instance took over after resume; exiting."
-    exit 0
+    if both_bound; then
+        log "another instance fixed the amplifiers across suspend; exiting."
+        exit 0
+    fi
+    log "lock held for ${LOCK_WAIT}s after resume; amplifiers still unbound." >&2
+    exit 1
 fi
 
 if both_bound; then
@@ -667,9 +680,8 @@ ok "Boot + resume services enabled"
 if [[ ! -e "$AMP0" || ! -e "$AMP1" ]]; then
     warn "Speakers not working — attempting live fix..."
     printf "  ${DIM}   (up to ~2 min; the machine may sleep for ~5 s)${NC}\n"
-    # restart, not start: the unit is RemainAfterExit=yes, so a prior
-    # successful run leaves it "active" and a plain start would do nothing.
-    if systemctl restart cs35l41-fix 2>/dev/null && [[ -e "$AMP0" && -e "$AMP1" ]]; then
+    systemctl restart cs35l41-fix 2>/dev/null || true
+    if [[ -e "$AMP0" && -e "$AMP1" ]]; then
         ok "Speakers fixed!"
     else
         warn "Couldn't fix live — reboot to apply"
@@ -717,12 +729,15 @@ case "${1:-}" in
     -h|--help)         banner; usage; exit 0 ;;
     -V|--version)      printf '%s %s\n' "$PROG" "$VERSION"; exit 0 ;;
     --status)          status; exit 0 ;;
-    --test|--selftest) exec bash "$SCRIPT_DIR/tests/helper-selftest.sh" ;;
+    --test|--selftest) if [[ -n "$SCRIPT_DIR" && -f "$SCRIPT_DIR/tests/helper-selftest.sh" ]]; then
+                           exec bash "$SCRIPT_DIR/tests/helper-selftest.sh"
+                       else
+                           fail "Self-test suite not found (requires cloned repository checkout)."
+                           exit 1
+                       fi ;;
     --reinstall)       need_root
-                       systemctl stop cs35l41-fix cs35l41-resume \
-                           cs35l41-watchdog.timer cs35l41-watchdog.service 2>/dev/null || true
                        warn "Forcing fresh install..."
-                       do_install ;;
+                       REINSTALL=1 do_install ;;
     --uninstall)       do_uninstall ;;
     "")                do_install ;;
     *)                 banner

@@ -13,11 +13,11 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SB="$ROOT/.selftest"
+SB="$(mktemp -d -t cs35l41-selftest.XXXXXX)"
+trap 'rm -rf "$SB"' EXIT
 BIN="$SB/bin"
 export PATH="$BIN:$PATH"
 
-rm -rf "$SB"
 mkdir -p "$BIN" "$SB/run" "$SB/amp0" "$SB/amp1" "$SB/state"
 
 # ── obtain the helper directly from scripts/cs35l41-helper.sh ───────────────
@@ -137,6 +137,10 @@ else
     echo "  FAIL  inert run recorded a fallback"; failed=$((failed+1))
 fi
 
+reset_state; rm -rf "$SB/amp1"; : > "$SB/amp0/driver"
+run_helper --fallback
+check "single-amp hardware -> inert, no suspend" 0 "nothing to do"
+
 reset_state; : > "$SB/amp0/driver"; : > "$SB/amp1/driver"
 run_helper; check "already bound -> no-op" 0 "already bound"
 
@@ -225,48 +229,76 @@ else
 fi
 
 # ── locking ─────────────────────────────────────────────────────────────────
+wait_lock_ready() {
+    local sync="$SB/state/lock_ready"
+    local deadline=$(( SECONDS + 3 ))
+    while [[ ! -f "$sync" && SECONDS -lt deadline ]]; do
+        sleep 0.02
+    done
+    [[ -f "$sync" ]] || return 1
+    rm -f "$sync"
+}
+
 reset_state; : > "$SB/state/bind-on-load"
-flock "$SB/run/cs35l41-reload.lock" -c "sleep 0.5" &
+( exec 8>"$SB/run/cs35l41-reload.lock"; flock 8; touch "$SB/state/lock_ready"; sleep 0.5 ) &
 locker=$!
-sleep 0.2
-run_helper --fallback
-wait "$locker" 2>/dev/null
-check "waits out a competing instance" 0 "fixed (attempt 1/3)"
+if wait_lock_ready; then
+    run_helper --fallback
+    wait "$locker" 2>/dev/null
+    check "waits out a competing instance" 0 "fixed (attempt 1/3)"
+else
+    kill "$locker" 2>/dev/null || true
+    wait "$locker" 2>/dev/null || true
+    echo "  FAIL  timed out waiting for lock readiness signal"; failed=$((failed+1))
+fi
 
 reset_state
-( exec 8>"$SB/run/cs35l41-reload.lock"; flock 8; sleep 3 ) &
+( exec 8>"$SB/run/cs35l41-reload.lock"; flock 8; touch "$SB/state/lock_ready"; sleep 3 ) &
 locker=$!
-sleep 0.2
-run_helper --fallback
-kill "$locker" 2>/dev/null
-wait "$locker" 2>/dev/null
-check "lock timeout with unbound amps exits 1" 1 "amplifiers still unbound"
+if wait_lock_ready; then
+    run_helper --fallback
+    kill "$locker" 2>/dev/null
+    wait "$locker" 2>/dev/null
+    check "lock timeout with unbound amps exits 1" 1 "amplifiers still unbound"
+else
+    kill "$locker" 2>/dev/null || true
+    wait "$locker" 2>/dev/null || true
+    echo "  FAIL  timed out waiting for lock readiness signal"; failed=$((failed+1))
+fi
 
 reset_state
 (
     exec 8>"$SB/run/cs35l41-reload.lock"
     flock 8
-    sleep 0.2
+    touch "$SB/state/lock_ready"
+    sleep 0.1
     : > "$SB/amp0/driver"
     : > "$SB/amp1/driver"
     sleep 2.5
 ) &
 locker=$!
-sleep 0.1
-run_helper --fallback
-kill "$locker" 2>/dev/null
-wait "$locker" 2>/dev/null
-check "lock timeout with bound amps exits 0" 0 "another instance fixed the amplifiers"
+if wait_lock_ready; then
+    run_helper --fallback
+    kill "$locker" 2>/dev/null
+    wait "$locker" 2>/dev/null
+    check "lock timeout with bound amps exits 0" 0 "another instance fixed the amplifiers"
+else
+    kill "$locker" 2>/dev/null || true
+    wait "$locker" 2>/dev/null || true
+    echo "  FAIL  timed out waiting for lock readiness signal"; failed=$((failed+1))
+fi
 
 # ── install-path regression guards ──────────────────────────────────────────
 # Both of these shipped as real bugs: a watchdog that was enabled but never
 # started, and a live fix that used `start` (a no-op once the unit is active).
-if grep -qE 'systemctl enable --now cs35l41-watchdog\.timer' "$ROOT/speakers.sh"; then
+# Verify only executable command lines within do_install(), ignoring comments.
+installer_body="$(sed -n '/^do_install() {/,/^# ── Main \/ Dispatch/p' "$ROOT/speakers.sh")"
+if grep -qE '^[[:space:]]*systemctl enable --now cs35l41-watchdog\.timer' <<<"$installer_body"; then
     echo "  PASS  installer starts the watchdog timer (--now)"; pass=$((pass+1))
 else
     echo "  FAIL  installer only enables the watchdog — it stays dormant"; failed=$((failed+1))
 fi
-if grep -qE 'systemctl restart cs35l41-fix' "$ROOT/speakers.sh"; then
+if grep -qE '^[[:space:]]*systemctl restart cs35l41-fix' <<<"$installer_body"; then
     echo "  PASS  live fix restarts the boot unit (start would be a no-op)"; pass=$((pass+1))
 else
     echo "  FAIL  live fix uses start — a no-op when the unit is already active"; failed=$((failed+1))
@@ -295,7 +327,7 @@ else
 fi
 
 order_ok=0
-awk '/systemctl restart cs35l41-fix/ { f=1 } /systemctl enable --now cs35l41-watchdog\.timer/ { if (f) exit 0; else exit 1 }' "$ROOT/speakers.sh" && order_ok=1
+awk '/^[[:space:]]*systemctl restart cs35l41-fix/ { f=1 } /^[[:space:]]*systemctl enable --now cs35l41-watchdog\.timer/ { if (f) exit 0; else exit 1 }' <<<"$installer_body" && order_ok=1
 if (( order_ok )); then
     echo "  PASS  installer ordering: live fix executes before watchdog start"; pass=$((pass+1))
 else
@@ -389,7 +421,22 @@ else
     echo "  FAIL  pipe execution misreported script name: $pipe_ver"; failed=$((failed+1))
 fi
 
+# ── pipe-execution CWE-427 SCRIPT_DIR guard ──────────────────────────────────
+# Piped execution must leave SCRIPT_DIR empty and refuse to execute or install
+# from an untrusted working directory containing mock files.
+pipe_out="$(
+    cd "$SB"
+    mkdir -p tests scripts
+    touch tests/helper-selftest.sh scripts/cs35l41-helper.sh
+    bash -s -- --test < "$ROOT/speakers.sh" 2>&1 || true
+)"
+if grep -q "Self-test suite not found" <<<"$pipe_out"; then
+    echo "  PASS  pipe execution safely leaves SCRIPT_DIR empty (CWE-427 guard)"; pass=$((pass+1))
+else
+    echo "  FAIL  pipe execution did not guard SCRIPT_DIR: $pipe_out"; failed=$((failed+1))
+fi
+
 echo
 echo "passed=$pass failed=$failed"
 rm -rf "$SB"
-[[ "$failed" == 0 && "$pass" == 34 ]]
+[[ "$failed" == 0 && "$pass" == 36 ]]

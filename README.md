@@ -31,7 +31,7 @@ bash speakers.sh --status           # Check hardware & service status
 sudo bash speakers.sh               # Install / update fix
 sudo bash speakers.sh --reinstall   # Force clean reinstall
 sudo bash speakers.sh --uninstall   # Completely remove fix
-bash speakers.sh --test             # Run 34-check test suite
+bash speakers.sh --test             # Run 36-check test suite
 ```
 
 ---
