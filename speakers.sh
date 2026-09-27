@@ -396,9 +396,13 @@ both_bound() { [[ -e "$AMP0" && -e "$AMP1" ]]; }
 
 # ── Inert on hardware without these amplifiers (the units guard on the same
 #    condition, this is belt and braces) ──
-if [[ ! -d "$DEV0" || ! -d "$DEV1" ]]; then
+if [[ ! -d "$DEV0" && ! -d "$DEV1" ]]; then
     log "no CSC3551 amplifier on this system; nothing to do."
     exit 0
+fi
+if [[ ! -d "$DEV0" || ! -d "$DEV1" ]]; then
+    log "partial CSC3551 amplifier presence detected; aborting." >&2
+    exit 1
 fi
 
 # ── Already working? Fast path, before taking any lock ──

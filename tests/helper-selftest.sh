@@ -139,7 +139,7 @@ fi
 
 reset_state; rm -rf "$SB/amp1"; : > "$SB/amp0/driver"
 run_helper --fallback
-check "single-amp hardware -> inert, no suspend" 0 "nothing to do"
+check "single-amp hardware -> fails fast on partial presence" 1 "partial CSC3551 amplifier presence"
 
 reset_state; : > "$SB/amp0/driver"; : > "$SB/amp1/driver"
 run_helper; check "already bound -> no-op" 0 "already bound"
